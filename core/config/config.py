@@ -1,11 +1,11 @@
 from typing import Any, Dict, Type, TypeVar, Optional
-from .schema import IRAConfig, KernelConfig, ServerConfig, LoggingConfig, SecurityConfig, LLMConfig, DatabaseConfig, PluginConfig, AndroidConfig, DesktopConfig
+from .schema import IRAConfig, KernelConfig, ServerConfig, LoggingConfig, SecurityConfig, LLMConfig, DatabaseConfig, PluginConfig, AndroidConfig, DesktopConfig, IdentityConfig
 from .loader import ConfigLoader
 from .providers import DictProvider, JsonFileProvider, EnvVarProvider
 from .defaults import (
     DEFAULT_PORT, DEFAULT_HOST, DEFAULT_TIMEOUT, DEFAULT_MAX_HISTORY, 
     DEFAULT_EVENT_LIMIT, DEFAULT_MODEL, DEFAULT_TEMPERATURE, 
-    DEFAULT_LOG_LEVEL, DEFAULT_LOG_FORMAT
+    DEFAULT_LOG_LEVEL, DEFAULT_LOG_FORMAT, DEFAULT_SESSION_TIMEOUT
 )
 from .validator import Validator
 from .environment import Environment
@@ -33,7 +33,8 @@ class ConfigurationManager:
             "database": {"connection_string": "sqlite:///:memory:", "max_connections": 10},
             "plugin": {"enabled": True, "plugin_dir": "plugins"},
             "android": {"enabled": False, "sync_interval": 60},
-            "desktop": {"enabled": True, "theme": "dark"}
+            "desktop": {"enabled": True, "theme": "dark"},
+            "identity": {"session_timeout": DEFAULT_SESSION_TIMEOUT}
         }
 
     def load(self, json_path: str = "config.json") -> IRAConfig:
@@ -124,3 +125,4 @@ class ConfigModule(Module):
         container.register_instance(PluginConfig, config.plugin)
         container.register_instance(AndroidConfig, config.android)
         container.register_instance(DesktopConfig, config.desktop)
+        container.register_instance(IdentityConfig, config.identity)

@@ -2,6 +2,10 @@ from dataclasses import dataclass, field
 from .secrets import SecretValue
 
 @dataclass(frozen=True)
+class IdentityConfig:
+    session_timeout: int
+    
+@dataclass(frozen=True)
 class KernelConfig:
     event_limit: int
 
@@ -59,3 +63,4 @@ class IRAConfig:
     plugin: PluginConfig
     android: AndroidConfig
     desktop: DesktopConfig
+    identity: IdentityConfig

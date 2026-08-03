@@ -3,7 +3,8 @@ from .environment import Environment
 from .secrets import SecretValue
 from .schema import (
     IRAConfig, KernelConfig, ServerConfig, LoggingConfig, SecurityConfig,
-    LLMConfig, DatabaseConfig, PluginConfig, AndroidConfig, DesktopConfig
+    LLMConfig, DatabaseConfig, PluginConfig, AndroidConfig, DesktopConfig,
+    IdentityConfig
 )
 from .config import ConfigurationManager, ConfigModule
 
@@ -23,6 +24,7 @@ __all__ = [
     "PluginConfig",
     "AndroidConfig",
     "DesktopConfig",
+    "IdentityConfig",
     "ConfigurationManager",
     "ConfigModule"
 ]
