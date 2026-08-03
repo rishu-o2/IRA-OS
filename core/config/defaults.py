@@ -1,0 +1,15 @@
+# Defaults for the Configuration System
+
+DEFAULT_PORT = 8080
+DEFAULT_HOST = "127.0.0.1"
+
+DEFAULT_TIMEOUT = 30.0
+
+DEFAULT_MAX_HISTORY = 100
+DEFAULT_EVENT_LIMIT = 1000
+
+DEFAULT_MODEL = "gpt-4o"
+DEFAULT_TEMPERATURE = 0.7
+
+DEFAULT_LOG_LEVEL = "INFO"
+DEFAULT_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
