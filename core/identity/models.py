@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
+from types import MappingProxyType
+from typing import Any, Mapping, Optional, Tuple
 from core.events.models import Event
 from .roles import Role
 from .permissions import Permission
@@ -13,11 +14,19 @@ class Identity:
     username: str
     display_name: str
     email: Optional[str] = None
-    roles: List[Role] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    roles: Tuple[Role, ...] = field(default_factory=tuple)
+    metadata: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     active: bool = True
+
+    def __post_init__(self) -> None:
+        roles = tuple(self.roles or ())
+        metadata = self.metadata or {}
+        if not isinstance(metadata, MappingProxyType):
+            metadata = MappingProxyType(dict(metadata))
+        object.__setattr__(self, "roles", roles)
+        object.__setattr__(self, "metadata", metadata)
 
 
 # --- Events ---

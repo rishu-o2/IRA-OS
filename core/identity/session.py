@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, Any, Optional
+from types import MappingProxyType
+from typing import Any, Mapping, Optional
+
 
 @dataclass(frozen=True)
 class Session:
@@ -11,4 +13,10 @@ class Session:
     started_at: datetime
     expires_at: Optional[datetime]
     authenticated: bool
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
+
+    def __post_init__(self) -> None:
+        metadata = self.metadata or {}
+        if not isinstance(metadata, MappingProxyType):
+            metadata = MappingProxyType(dict(metadata))
+        object.__setattr__(self, "metadata", metadata)

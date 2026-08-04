@@ -12,7 +12,8 @@ from core.container import Container
 from core.identity import (
     IdentityManager, IdentityRegistry, SessionRegistry, AuthenticationManager, AuthorizationManager,
     Identity, Role, Permission, Session, IdentityModule, DefaultPermissionPolicy,
-    AuthenticationError, AuthorizationError, SessionRegistrationError, IdentityRegistrationError
+    AuthenticationError, AuthorizationError, SessionRegistrationError, IdentityRegistrationError,
+    SessionExpiredError
 )
 
 
@@ -114,6 +115,62 @@ async def test_logout(identity_manager: IdentityManager):
     assert identity_manager.current_session() is None
     assert identity_manager.current_identity() is None
 
+@pytest.mark.anyio
+async def test_nested_context_restores_parent_context(identity_manager: IdentityManager):
+    outer = Identity(id="outer", username="outer", display_name="Outer", roles=[Role.ADMIN])
+    inner = Identity(id="inner", username="inner", display_name="Inner", roles=[Role.GUEST])
+    await identity_manager.register(outer)
+    await identity_manager.register(inner)
+
+    outer_session = await identity_manager.authenticate(outer)
+    inner_session = await identity_manager._authentication.authenticate(inner)
+
+    assert identity_manager.current_identity() == inner
+    assert identity_manager.current_session() == inner_session
+
+    await identity_manager._authentication.logout(inner_session.session_id)
+
+    assert identity_manager.current_identity() == outer
+    assert identity_manager.current_session() == outer_session
+
+@pytest.mark.anyio
+async def test_context_isolation_across_tasks(identity_manager: IdentityManager):
+    identities = [
+        Identity(id=f"task-{i}", username=f"task-{i}", display_name=f"Task {i}", roles=[Role.GUEST])
+        for i in range(2)
+    ]
+    for ident in identities:
+        await identity_manager.register(ident)
+
+    async def worker(ident: Identity):
+        session = await identity_manager.authenticate(ident)
+        await anyio.sleep(0)
+        assert identity_manager.current_identity() == ident
+        assert identity_manager.current_session() == session
+        await identity_manager.logout(session.session_id)
+
+    async with anyio.create_task_group() as tg:
+        for ident in identities:
+            tg.start_soon(worker, ident)
+
+@pytest.mark.anyio
+async def test_expired_sessions_are_rejected(identity_manager: IdentityManager):
+    ident = Identity(id="exp", username="exp", display_name="Expired", roles=[Role.GUEST])
+    await identity_manager.register(ident)
+
+    config = ConfigurationManager()
+    config.load()
+    config.override({"identity": {"session_timeout": -1}})
+    config.load()
+
+    auth = AuthenticationManager(identity_manager._registry, identity_manager._authentication._session_registry, config, None)
+
+    with pytest.raises(SessionExpiredError):
+        await auth.authenticate(ident)
+
+    assert auth.current_session() is None
+    assert auth.current_identity() is None
+
 
 # --- Authorization & RBAC Tests ---
 
@@ -150,7 +207,49 @@ async def test_explicit_grants(identity_manager: IdentityManager):
     assert not identity_manager.has_permission(guest, Permission.SYSTEM)
 
 
+def test_models_are_immutable():
+    ident = Identity(id="immutable", username="immutable", display_name="Immutable", roles=[Role.ADMIN], metadata={"key": "value"})
+    session = Session(session_id="s1", identity_id="immutable", device_id=None, started_at=datetime.datetime.now(datetime.timezone.utc), expires_at=None, authenticated=True, metadata={"source": "test"})
+
+    with pytest.raises(AttributeError):
+        ident.roles.append(Role.GUEST)
+
+    with pytest.raises(TypeError):
+        ident.metadata["key"] = "new"
+
+    with pytest.raises(TypeError):
+        session.metadata["source"] = "changed"
+
+
 # --- DI Container Integration ---
+
+@pytest.mark.anyio
+async def test_registry_replace_and_remove():
+    registry = IdentityRegistry()
+    original = Identity(id="reg-1", username="first", display_name="First", roles=[Role.GUEST])
+    replacement = Identity(id="reg-1", username="second", display_name="Second", roles=[Role.ADMIN])
+
+    registry.register(original)
+    registry.replace(replacement)
+
+    assert registry.get("reg-1") == replacement
+    assert registry.get_by_username("second") == replacement
+    assert registry.get_by_username("first") is None
+
+    registry.remove("reg-1")
+    assert registry.exists("reg-1") is False
+
+@pytest.mark.anyio
+async def test_lifecycle_idempotency():
+    config = ConfigurationManager()
+    config.load()
+    logger = LoggerFactory().get("test.lifecycle")
+    manager = IdentityManager(IdentityRegistry(), AuthenticationManager(IdentityRegistry(), SessionRegistry(), config), AuthorizationManager(DefaultPermissionPolicy()), logger)
+
+    await manager.start()
+    await manager.start()
+    await manager.shutdown()
+    await manager.shutdown()
 
 @pytest.mark.anyio
 async def test_di_integration():

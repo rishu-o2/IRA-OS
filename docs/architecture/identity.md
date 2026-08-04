@@ -38,3 +38,11 @@ The Identity System emits strongly-typed events to the `EventBus` if one is pres
 - `PermissionRevoked`
 
 These events allow audit logging, telemetry, or security monitoring to plug in transparently.
+
+## Freeze-Preparation Refinements
+
+The Milestone 6.1 refinement pass preserved the architecture and public API while tightening the following behaviors:
+- `AuthenticationManager` now uses token-based context restoration semantics for nested authentication contexts.
+- Identity and session models now expose immutable container semantics to prevent external mutation.
+- Session expiration is enforced centrally so expired sessions are rejected before they become current context.
+- Regression tests now cover context restoration, session expiry, lifecycle idempotency, and registry behavior.

@@ -28,5 +28,8 @@ We implemented the `core/identity/` package with the following architectural cho
 - **Positive**: Clean, async-safe context tracking.
 - **Negative**: Because the registries are purely in-memory, identities and explicit grants must be re-registered on every system boot. (This is expected to be solved by an application-level adapter reading from a database in the future).
 
+## Milestone 6.1 Refinements
+The freeze-preparation refinement pass preserved the architecture and public API while tightening context restoration, immutable model semantics, and centralized session expiration handling. These refinements are compatibility-preserving and do not alter the underlying architectural decisions.
+
 ## Version
 v1.5.0 (Milestone 6)
