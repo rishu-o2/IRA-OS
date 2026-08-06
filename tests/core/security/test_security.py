@@ -242,11 +242,13 @@ def test_validator_failures():
 # Policy Evaluator Scaffold
 # ─────────────────────────────────────────────
 
-def test_evaluator_default_grant():
+def test_evaluator_deny_by_default():
+    """With no loaded policies, any capability must be DENIED (Deny-by-Default)."""
     evaluator = DefaultPolicyEvaluator()
     req = make_request(TrustLevel.UNTRUSTED)
     decision = evaluator.evaluate(req)
-    assert decision.state == PermissionState.GRANTED
+    assert decision.state == PermissionState.DENIED
+    assert "Deny-by-Default" in decision.denial_reason
 
 def test_evaluator_trust_insufficient():
     evaluator = DefaultPolicyEvaluator()
@@ -347,20 +349,33 @@ async def test_lifecycle_and_health():
 
 @pytest.mark.anyio
 async def test_manager_pipeline_grant():
+    """Grant requires an explicit policy defining the capability."""
     container = await build_container()
     manager = await container.resolve(PermissionManager)
+    evaluator = await container.resolve(PolicyEvaluator)
     bus = await container.resolve(EventBus)
-    
+
+    # Load an explicit policy permitting the capability
+    policy = PermissionPolicy(
+        policy_id="pol-grant",
+        name="Test Grant",
+        description="Explicitly allow test.cap",
+        requirements=(
+            PermissionRequirement("test.cap", TrustLevel.UNTRUSTED),
+        ),
+    )
+    evaluator.load_policy(policy)
+
     events = []
     async def sub(ev: Event):
         events.append(ev)
     bus.subscribe(Event, sub)
-    
+
     req = make_request()
     res = await manager.check_permission(req)
-    
+
     assert res.granted is True
-    
+
     event_types = [type(e) for e in events]
     assert PermissionRequested in event_types
     assert PolicyEvaluationCompleted in event_types

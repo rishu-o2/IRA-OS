@@ -1,0 +1,68 @@
+from core.container import ContainerProtocol, Lifetime, Module
+from core.events import EventBus
+from core.execution.contracts import ExecutionService
+from core.logging import LoggerFactory
+from core.runtime.interfaces import CapabilityRegistry
+
+from .audit import AuditManager, InMemoryAuditSink
+from .confirmation import ConfirmationManager
+from .contracts import MutationManager
+from .manager import DefaultMutationManager
+
+
+class MutationModule(Module):
+    """
+    DI module for the Mutation Lifecycle Framework subsystem.
+
+    Registers the MutationManager as a first-class kernel singleton.
+    Depends on: ExecutionModule, RuntimeModule (must be installed first).
+    """
+
+    def configure(self, container: ContainerProtocol) -> None:
+
+        async def build_audit_manager() -> AuditManager:
+            logger_factory = await container.resolve(LoggerFactory)
+            logger = logger_factory.get("core.mutation.audit")
+            manager = AuditManager(logger)
+            # Register default sink for now
+            manager.register_sink(InMemoryAuditSink())
+            return manager
+
+        async def build_confirmation_manager() -> ConfirmationManager:
+            logger_factory = await container.resolve(LoggerFactory)
+            logger = logger_factory.get("core.mutation.confirmation")
+            return ConfirmationManager(logger)
+
+        async def build_mutation_manager() -> MutationManager:
+            execution_service = await container.resolve(ExecutionService)
+            registry = await container.resolve(CapabilityRegistry)
+            confirmation_manager = await container.resolve(ConfirmationManager)
+            audit_manager = await container.resolve(AuditManager)
+            event_bus = await container.resolve(EventBus)
+            logger_factory = await container.resolve(LoggerFactory)
+            logger = logger_factory.get("core.mutation")
+
+            return DefaultMutationManager(
+                execution_service=execution_service,
+                capability_registry=registry,
+                confirmation_manager=confirmation_manager,
+                audit_manager=audit_manager,
+                event_bus=event_bus,
+                logger=logger,
+            )
+
+        container.register_factory(
+            AuditManager,
+            factory=build_audit_manager,
+            lifetime=Lifetime.SINGLETON,
+        )
+        container.register_factory(
+            ConfirmationManager,
+            factory=build_confirmation_manager,
+            lifetime=Lifetime.SINGLETON,
+        )
+        container.register_factory(
+            MutationManager,
+            factory=build_mutation_manager,
+            lifetime=Lifetime.SINGLETON,
+        )

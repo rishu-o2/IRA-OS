@@ -15,13 +15,13 @@ from .models import (
 
 class DefaultPolicyEvaluator(PolicyEvaluator):
     """
-    In-memory policy evaluator scaffold.
+    In-memory policy evaluator.
 
-    Loads policies and evaluates PermissionRequests against them.
-    Does NOT implement real policy logic — scaffolded for Milestone 12.2.
+    Enforces a strict Deny-by-Default security posture.
 
-    Default behavior: GRANT all requests unless a policy explicitly
-    demands user approval or a higher trust level than the context provides.
+    Any capability not explicitly permitted by a loaded policy is DENIED.
+    This is the production-grade security requirement for an AI operating
+    system that may eventually control payments, messaging, and device access.
     """
 
     def __init__(self) -> None:
@@ -36,14 +36,17 @@ class DefaultPolicyEvaluator(PolicyEvaluator):
         # Find applicable requirement for this capability
         requirement = self._find_requirement(request.capability_id)
 
-        # Default: grant if no policy constrains this capability
+        # DENY-BY-DEFAULT: if no policy explicitly covers this capability, deny.
         if requirement is None:
             return PermissionDecision(
                 permission_id=request.permission_id,
                 capability_id=request.capability_id,
-                state=PermissionState.GRANTED,
+                state=PermissionState.DENIED,
                 trust_level=request.context.trust_level,
-                requires_user_approval=False,
+                denial_reason=(
+                    f"No policy found for capability '{request.capability_id}'. "
+                    "Deny-by-Default enforced."
+                ),
             )
 
         # Evaluate trust level sufficiency

@@ -74,6 +74,14 @@ async def build_container() -> Container:
     container.register_instance(EventBus, event_bus)
     container.register_instance(LoggerFactory, logger_factory)
 
+    # Install kernel subsystems required by WorkflowExecutor -> ExecutionService
+    from core.security.security_module import SecurityModule
+    from core.runtime.runtime_module import RuntimeModule
+    from core.execution.execution_module import ExecutionModule
+
+    container.install(SecurityModule())
+    container.install(RuntimeModule())
+    container.install(ExecutionModule())
     container.install(WorkflowModule())
     return container
 
@@ -84,6 +92,25 @@ def make_request(wf_id: str = "wf-test") -> WorkflowRequest:
         target_capability="test.cap",
         arguments={"x": 1}
     )
+
+
+async def seed_test_capability(container) -> None:
+    from unittest.mock import AsyncMock, MagicMock
+    from core.runtime.interfaces import CapabilityRegistry
+    from core.runtime.models import CapabilityMetadata
+    from core.security.contracts import PolicyEvaluator
+    from core.security.models import PermissionPolicy, PermissionRequirement, TrustLevel
+    cap = MagicMock()
+    cap.metadata = CapabilityMetadata(id="test.cap", name="Test", description="", version="1")
+    cap.execute = AsyncMock(return_value={"ok": True})
+    registry = await container.resolve(CapabilityRegistry)
+    await registry.register(cap)
+    policy = PermissionPolicy(
+        policy_id="pol-test", name="Test Policy", description="Allow test.cap",
+        requirements=(PermissionRequirement("test.cap", TrustLevel.UNTRUSTED),),
+    )
+    evaluator = await container.resolve(PolicyEvaluator)
+    evaluator.load_policy(policy)
 
 
 # ─────────────────────────────────────────────
@@ -267,19 +294,20 @@ def test_queue_remove():
 @pytest.mark.anyio
 async def test_manager_pipeline_success():
     container = await build_container()
+    await seed_test_capability(container)
     manager = await container.resolve(WorkflowManager)
     bus = await container.resolve(EventBus)
-    
+
     events = []
     bus.subscribe(Event, lambda e: events.append(e))
-    
+
     req = make_request("wf-pipeline")
     res = await manager.submit(req)
-    
+
     assert res.success is True
     assert res.status == WorkflowStatus.COMPLETED
     assert res.workflow_id == "wf-pipeline"
-    
+
     event_types = [type(e) for e in events]
     assert TaskQueued in event_types
     assert WorkflowStarted in event_types
@@ -290,14 +318,15 @@ async def test_manager_pipeline_success():
 @pytest.mark.anyio
 async def test_manager_status():
     container = await build_container()
+    await seed_test_capability(container)
     manager = await container.resolve(WorkflowManager)
-    
+
     with pytest.raises(WorkflowNotFoundError):
         await manager.status("not-found")
-        
+
     req = make_request("wf-status")
     await manager.submit(req)
-    
+
     stat = await manager.status("wf-status")
     assert stat == WorkflowStatus.COMPLETED
 

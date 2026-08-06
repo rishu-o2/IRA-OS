@@ -17,6 +17,7 @@ class CapabilityMetadata:
     name: str
     description: str
     version: str
+    mutation: Optional[Any] = None
 
 
 @dataclass(frozen=True)

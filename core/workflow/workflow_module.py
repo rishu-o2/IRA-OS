@@ -1,5 +1,6 @@
 from core.container import ContainerProtocol, Lifetime, Module
 from core.events import EventBus
+from core.execution.contracts import ExecutionService
 from core.logging import LoggerFactory
 
 from .contracts import WorkflowExecutor, WorkflowManager, WorkflowQueue, WorkflowScheduler
@@ -15,7 +16,10 @@ class WorkflowModule(Module):
     def configure(self, container: ContainerProtocol) -> None:
         container.register_singleton(WorkflowScheduler, DefaultWorkflowScheduler)
         container.register_singleton(WorkflowQueue, InMemoryWorkflowQueue)
-        container.register_singleton(WorkflowExecutor, DefaultWorkflowExecutor)
+
+        async def build_executor() -> WorkflowExecutor:
+            execution_service = await container.resolve(ExecutionService)
+            return DefaultWorkflowExecutor(execution_service=execution_service)
 
         async def build_manager() -> WorkflowManager:
             scheduler = await container.resolve(WorkflowScheduler)
@@ -33,4 +37,5 @@ class WorkflowModule(Module):
                 logger=logger,
             )
 
+        container.register_factory(WorkflowExecutor, factory=build_executor, lifetime=Lifetime.SINGLETON)
         container.register_factory(WorkflowManager, factory=build_manager, lifetime=Lifetime.SINGLETON)
