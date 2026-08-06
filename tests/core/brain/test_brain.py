@@ -85,19 +85,23 @@ async def store_memory(container: Container, owner_id: str = "user-1") -> None:
     )
 
 
-def make_request(request_id: str = "request-1", goal_id: str = "goal-1") -> BrainRequest:
+def make_request(request_id: str = "request-1", goal_id: str = "goal-1", user_id: str = "user-1", extra_metadata: dict = None) -> BrainRequest:
+    metadata = {
+        "goal_id": goal_id,
+        "memory_query": "report context",
+        "memory_namespace": "brain-test",
+        "memory_tags": ("brain",),
+        "conversation_context": [{"role": "user", "content": "previous turn"}],
+        "intent": "coordinate",
+    }
+    if extra_metadata:
+        metadata.update(extra_metadata)
+        
     return BrainRequest(
         request_id=request_id,
-        user_id="user-1",
+        user_id=user_id,
         payload="Build the report",
-        metadata={
-            "goal_id": goal_id,
-            "memory_query": "report context",
-            "memory_namespace": "brain-test",
-            "memory_tags": ("brain",),
-            "conversation_context": [{"role": "user", "content": "previous turn"}],
-            "intent": "coordinate",
-        },
+        metadata=metadata,
     )
 
 
@@ -284,3 +288,130 @@ async def test_processing_is_deterministic_for_same_request_shape():
     assert second.decision is not None
     assert first.decision.plan_summary.task_ids == second.decision.plan_summary.task_ids
     assert first.decision.memory_count == second.decision.memory_count == 1
+
+
+@pytest.mark.anyio
+async def test_brain_health_check_dependency_degradation():
+    from core.brain.manager import BrainManager
+    from core.logging import LoggerFactory
+    from core.logging.sinks import NullSink
+    
+    logger = LoggerFactory(sinks=[NullSink()]).get("core.brain")
+    
+    # Missing dependencies
+    manager = BrainManager(pipeline=None, logger=logger)
+    await manager.start()
+    health = await manager.health_check()
+    
+    assert health.state == ComponentState.FAILED
+    assert "Pipeline" in health.details
+    assert "Identity" in health.details
+    assert "Memory" in health.details
+    assert "Planner" in health.details
+    assert "Event Bus" in health.details
+    
+    # Stopped Brain
+    await manager.shutdown()
+    health = await manager.health_check()
+    assert health.state == ComponentState.STOPPED
+
+
+@pytest.mark.anyio
+async def test_brain_boundary_validation_malformed_input():
+    container = await build_container()
+    manager = await container.resolve(BrainManager)
+    
+    event_bus = await container.resolve(EventBus)
+    events = []
+    async def handler(event: Event):
+        events.append(event)
+    event_bus.subscribe(Event, handler)
+    
+    # Completely invalid input
+    result1 = await manager.process_request(None)
+    assert result1.success is False
+    assert result1.request_id == "unknown"
+    assert isinstance(events[-1], BrainRequestFailed)
+    assert events[-1].request_id == "unknown"
+    
+    # Malformed request-like object without request_id
+    class BadObject:
+        pass
+        
+    result2 = await manager.process_request(BadObject())
+    assert result2.success is False
+    assert result2.request_id == "unknown"
+    
+    # Malformed with some request_id
+    class FakeRequest:
+        request_id = "fake-123"
+        
+    result3 = await manager.process_request(FakeRequest())
+    assert result3.success is False
+    assert result3.request_id == "fake-123"
+
+
+@pytest.mark.anyio
+async def test_brain_pipeline_execution_order_and_stages():
+    container = await build_container()
+    pipeline = await container.resolve(BrainPipeline)
+    
+    stage_names = [stage.name for stage in pipeline.stages]
+    
+    # Ensure there's exactly one canonical pipeline and exact order
+    expected_stages = [
+        "validate_request",
+        "conversation_context",
+        "resolve_identity",
+        "analyze_request",
+        "retrieve_memory",
+        "build_planner_input",
+        "invoke_planner",
+        "make_decision",
+    ]
+    
+    assert stage_names == expected_stages
+
+
+@pytest.mark.anyio
+async def test_brain_inactive_identity():
+    container = await build_container()
+    identity_manager = await container.resolve(IdentityManager)
+    identity = Identity(id="user-inactive", username="user-inactive", display_name="user-inactive", roles=(Role.GUEST,), active=False)
+    await identity_manager.register(identity)
+    
+    manager = await container.resolve(BrainManager)
+    
+    request = make_request(user_id="user-inactive")
+    result = await manager.process_request(request)
+    
+    assert result.success is False
+    assert result.error == "Brain request processing failed."
+
+
+@pytest.mark.anyio
+async def test_brain_invalid_memory_limit():
+    container = await build_container()
+    await register_identity(container)
+    manager = await container.resolve(BrainManager)
+    
+    request = make_request(extra_metadata={"memory_limit": "not-an-int"})
+    result = await manager.process_request(request)
+    
+    assert result.success is False
+    assert result.error == "Brain request processing failed."
+
+
+@pytest.mark.anyio
+async def test_brain_missing_planner_goal():
+    container = await build_container()
+    await register_identity(container)
+    await store_memory(container)
+    manager = await container.resolve(BrainManager)
+    
+    request = make_request(goal_id="nonexistent-goal")
+    result = await manager.process_request(request)
+    
+    assert result.success is False
+    assert result.error == "Brain request processing failed."
+

@@ -57,7 +57,27 @@ class BrainModule(Module):
             event_bus = None
             if container.has(EventBus):
                 event_bus = await container.resolve(EventBus)
-            return BrainManager(pipeline=pipeline, logger=logger, event_bus=event_bus)
+            
+            identity_manager = None
+            if container.has(IdentityManager):
+                identity_manager = await container.resolve(IdentityManager)
+                
+            memory_manager = None
+            if container.has(MemoryManager):
+                memory_manager = await container.resolve(MemoryManager)
+                
+            planner_manager = None
+            if container.has(PlannerManager):
+                planner_manager = await container.resolve(PlannerManager)
+                
+            return BrainManager(
+                pipeline=pipeline, 
+                logger=logger, 
+                event_bus=event_bus,
+                identity_manager=identity_manager,
+                memory_manager=memory_manager,
+                planner_manager=planner_manager,
+            )
 
         container.register_factory(BrainPipeline, factory=build_pipeline, lifetime=Lifetime.SINGLETON)
         container.register_factory(BrainManager, factory=build_brain_manager, lifetime=Lifetime.SINGLETON)

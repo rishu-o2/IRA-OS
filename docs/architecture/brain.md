@@ -52,15 +52,16 @@ The Brain is composed of a small set of collaboration layers:
 - `BrainModule` — DI integration and kernel wiring
 
 ## Request Pipeline
-Every request follows the same deterministic flow:
+Every request follows exactly this canonical deterministic sequence:
 
-1. Request received
-2. Identity resolved
-3. Context built
-4. Memory retrieved
-5. Planner requested
-6. Decision produced
-7. `BrainResult` returned
+1. Validate Request
+2. Build Conversation Context
+3. Resolve Identity
+4. Analyze Request
+5. Retrieve Memory
+6. Build Planner Input
+7. Invoke Planner
+8. Make Decision
 
 This pipeline is intentionally sequential and stateless between requests.
 

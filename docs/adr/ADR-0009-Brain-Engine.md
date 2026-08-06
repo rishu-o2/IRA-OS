@@ -4,7 +4,7 @@
 ADR-0009: Brain Engine
 
 ## Status
-Proposed
+Accepted (Frozen for API)
 
 ## Date
 2026-08-05
@@ -15,10 +15,7 @@ Milestones 6 through 8 established the frozen kernel foundation with Identity, M
 ## Decision
 Implement a Brain Engine that:
 - accepts stateless request input
-- resolves identity through the frozen Identity subsystem
-- builds request context
-- retrieves relevant memory from the frozen Memory subsystem
-- requests an execution plan from the frozen Planner subsystem
+- follows the canonical 8-stage pipeline (Validate Request, Build Conversation Context, Resolve Identity, Analyze Request, Retrieve Memory, Build Planner Input, Invoke Planner, Make Decision)
 - produces a deterministic `BrainResult`
 - publishes Brain lifecycle and request events
 - integrates with kernel lifecycle and DI
