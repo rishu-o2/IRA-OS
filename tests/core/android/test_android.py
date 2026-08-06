@@ -14,7 +14,7 @@ from core.runtime.interfaces import CapabilityRegistry as ToolCapabilityRegistry
 from core.runtime.models import CapabilityMetadata, ExecutionContext, ExecutionRequest
 
 from core.android.contracts import AndroidAdapter, AndroidCapability, AndroidRegistry, AndroidRuntime
-from core.android.models import AndroidRuntimeStatus, CapabilityDescriptor, CapabilityState
+from core.android.models import AndroidRuntimeStatus, CapabilityDescriptor, CapabilityState, SecurityLevel
 from core.android.events import (
     AndroidCapabilityRegistered,
     AndroidCapabilityRemoved,
@@ -49,7 +49,7 @@ class ConcreteAndroidCapability(AndroidCapability):
             id=cap_id,
             name=f"Test {cap_id}",
             description="Test capability",
-            version="1.0",
+            version="1.0", security_level=SecurityLevel.LOW,
         )
         self._should_fail = should_fail
 
@@ -154,7 +154,7 @@ def test_android_runtime_manager_satisfies_contract():
 # ─────────────────────────────────────────────
 
 def test_capability_descriptor_is_immutable():
-    d = CapabilityDescriptor(id="id", name="n", description="d", version="1")
+    d = CapabilityDescriptor(id="id", name="n", description="d", version="1", security_level=SecurityLevel.LOW)
     with pytest.raises((AttributeError, TypeError)):
         d.id = "changed"  # type: ignore
 

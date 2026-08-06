@@ -1,150 +1,60 @@
-# Android Runtime Architecture
+# Android Runtime Subsystem
 
-## Overview
-The Android Runtime is a platform adapter layer in IRA OS. It exposes Android device capabilities to the Tool Runtime as abstract `Capability` objects.
+The Android Runtime is a core component of IRA OS, responsible for bridging the generic Tool Runtime with Android-specific capabilities.
 
-> **Android Runtime does not know what the user wants. It only knows how Android can fulfill a capability request.**
+## Architecture
 
-## Architecture Position
+The architecture enforces a strict boundary between capability definition and platform execution through domain-specific **Bridges**. 
 
-```
-Kernel
-├── Identity
-├── Memory
-├── Planner
-├── Brain
-└── Tool Runtime
+### The Bridge Pattern
+Following the Interface Segregation Principle (ISP), capabilities never communicate with Android APIs directly, nor do they rely on a monolithic god-interface. 
+Instead, they interact with targeted, domain-specific bridge contracts.
 
-Platform Layer
-└── Android Runtime
-        ↓
-    Capability Layer
-    ├── Call
-    ├── SMS
-    ├── Camera
-    └── ...
-```
+```mermaid
+graph TD
+    subgraph Tool Runtime
+        TR[Capability Request]
+    end
 
-## Dependency Direction
+    subgraph Android Capabilities
+        Adapter[Android Adapter]
+        BatCap[Battery Capability]
+        WifiCap[Wi-Fi Capability]
+    end
 
-```
-User
-  ↓
-Brain
-  ↓
-Tool Runtime
-  ↓
-Android Runtime          ← Platform Adapter Only
-  ↓
-Android Capabilities
-```
+    subgraph Domain Bridges
+        SysB[SystemBridge Contract]
+        NetB[NetworkBridge Contract]
+    end
 
-The Android Runtime is a strict downstream consumer of the Tool Runtime. It never flows upward to Brain, Planner, or Memory.
+    subgraph Bridge Implementations
+        MockSys[MockSystemBridge]
+        MockNet[MockNetworkBridge]
+        ADBSys[ADBSystemBridge]
+    end
 
-## Responsibilities
-- Register Android capabilities into the Tool Runtime.
-- Discover available Android capabilities at startup.
-- Adapt Tool Runtime execution requests into Android-specific calls.
-- Publish lifecycle and capability events.
-- Report health and availability.
-
-## Non-Responsibilities
-The Android Runtime must **never**:
-- Call Brain, Planner, or Memory directly.
-- Perform reasoning or planning.
-- Manage conversation state.
-- Execute platform code belonging to other runtimes (Windows, Linux).
-
-## Component Map
-
-| Component | Purpose |
-|---|---|
-| `contracts.py` | Defines `AndroidCapability`, `AndroidAdapter`, `AndroidRegistry`, `AndroidRuntime` |
-| `models.py` | Immutable models: `CapabilityDescriptor`, `AndroidDeviceInfo`, `AndroidRuntimeStatus`, `CapabilityState` |
-| `events.py` | Lifecycle events: `AndroidRuntimeStarted`, `AndroidRuntimeStopped`, `AndroidCapabilityRegistered`, `AndroidCapabilityRemoved`, `AndroidHealthChanged` |
-| `adapter.py` | `DefaultAndroidAdapter` — translates Tool Runtime `ExecutionContext` → Android `execute_action()` |
-| `registry.py` | `InMemoryAndroidRegistry` — registers, discovers, queries capabilities. Bridges them into the global Tool Runtime registry |
-| `health.py` | `AndroidHealthTracker` — independently tracks and publishes health state |
-| `manager.py` | `AndroidRuntimeManager` — lifecycle orchestration (start, shutdown) |
-| `android_module.py` | DI module wiring |
-| `capabilities/` | Per-capability abstract interface files |
-
-## Canonical Capability Interfaces
-
-All capabilities defined in `core/android/capabilities/` are fully abstract:
-
-| File | Capability |
-|---|---|
-| `call.py` | PhoneCall Capability |
-| `sms.py` | SMS Capability |
-| `alarm.py` | Alarm Capability |
-| `calendar.py` | Calendar Capability |
-| `notification.py` | Notification Capability |
-| `camera.py` | Camera Capability |
-| `contacts.py` | Contacts Capability |
-| `files.py` | File System Capability |
-| `media.py` | Media Playback Capability |
-| `location.py` | Location/GPS Capability |
-| `bluetooth.py` | Bluetooth Capability |
-| `wifi.py` | Wi-Fi Capability |
-| `application.py` | Application Launch Capability |
-| `clipboard.py` | Clipboard Capability |
-| `battery.py` | Battery Info Capability |
-| `device.py` | General Device Info Capability |
-
-## Health Model
-
-Health is tracked by `AndroidHealthTracker` independently from the manager lifecycle. State transitions emit `AndroidHealthChanged` events.
-
-| State | Meaning |
-|---|---|
-| `STOPPED` | Runtime is not running |
-| `INITIALIZING` | Runtime is starting |
-| `RUNNING` | Runtime is healthy and available |
-| `DEGRADED` | Runtime is running but some capabilities are unavailable |
-
-## Event Model
-
-| Event | When |
-|---|---|
-| `AndroidRuntimeStarted` | Manager successfully starts |
-| `AndroidRuntimeStopped` | Manager shuts down |
-| `AndroidCapabilityRegistered` | A new capability is registered |
-| `AndroidCapabilityRemoved` | A capability is unregistered |
-| `AndroidHealthChanged` | Health state transitions |
-
-## DI Integration
-
-The `AndroidModule` wires:
-- `AndroidRegistry` (Singleton)
-- `AndroidHealthTracker` (Singleton)
-- `AndroidRuntime` (Singleton)
-
-The `AndroidModule` requires the `RuntimeModule` to already be installed so the global `CapabilityRegistry` is available for bridging.
-
-## Public API
-
-All consumers interact with the Android Runtime through its **contracts only**.
-
-```python
-# Start the Android Runtime
-manager = await container.resolve(AndroidRuntime)
-await manager.start()
-
-# Register a capability
-registry = await container.resolve(AndroidRegistry)
-await registry.register(MyCallCapability())
-
-# Health check (via the AndroidRuntime contract directly)
-health = await manager.health_check()
+    TR --> Adapter
+    Adapter --> BatCap
+    Adapter --> WifiCap
+    
+    BatCap --> SysB
+    WifiCap --> NetB
+    
+    SysB --> MockSys
+    SysB -.-> ADBSys
+    NetB --> MockNet
 ```
 
-**Note:** `AndroidRuntimeManager` and `AndroidHealthTracker` are internal implementation classes. Always resolve `AndroidRuntime` and `AndroidRegistry` from the DI container.
+### Key Principles
+1. **No Android SDK Dependencies:** Capabilities must never import `android.*`, `adb`, `pyjnius`, or similar APIs.
+2. **Universal Execution Interface:** Capabilities invoke bridges using a universal interface: `bridge.execute(action, arguments)`. This guarantees that capabilities will require **zero changes** whether the bridge is implemented via local Python mocks, ADB, Shizuku, or Binder IPC.
+3. **Strict Dependency Injection:** Capabilities declare their required bridge contract, and the DI container provides the appropriate runtime implementation.
 
-## Extension Strategy
+## Security & Metadata
+Every Android capability must provide a `CapabilityDescriptor` defining:
+- `security_level`: (LOW, NORMAL, HIGH, CRITICAL, SYSTEM)
+- `required_permissions`: Android manifest permissions required for execution.
+- `requires_confirmation`: UI intervention requirement.
 
-Future Android capabilities:
-1. Implement `AndroidCapability` abstract interface.
-2. Register with `InMemoryAndroidRegistry`.
-3. The `DefaultAndroidAdapter` automatically bridges them into the Tool Runtime.
-4. No changes required in Brain, Planner, Memory, or Tool Runtime.
+## Error Normalization
+To prevent platform crashes from destabilizing the kernel, capabilities must wrap raw platform exceptions (e.g., JNI crashes, ADB timeouts) into `PlatformExecutionError`. Expected failures (e.g., missing permissions) are mapped to `PermissionDeniedError` and standard `CapabilityError` subclasses.
