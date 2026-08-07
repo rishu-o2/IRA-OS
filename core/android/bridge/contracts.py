@@ -20,16 +20,26 @@ class BaseBridge(ABC):
 class SystemBridge(BaseBridge):
     """
     Bridge for device state and core system data.
-    Sub-domains: battery, clipboard, device info, storage, time.
-    
+    Sub-domains: battery, clipboard, device info, storage, time, flashlight, volume.
+
     Action Namespace: system.*
-    Supported Actions:
+
+    Flashlight Actions:
     - system.flashlight.on
     - system.flashlight.off
     - system.flashlight.toggle
     - system.flashlight.status
+
+    Volume Actions:
+    - system.volume.get
+    - system.volume.set       (args: {"value": int 0-100})
+    - system.volume.up        (args: {"step": int, default 10})
+    - system.volume.down      (args: {"step": int, default 10})
+    - system.volume.mute
+    - system.volume.unmute
     """
     pass
+
 
 
 class NetworkBridge(BaseBridge):

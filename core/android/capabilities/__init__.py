@@ -9,10 +9,12 @@ from .clipboard import ClipboardCapability
 from .contacts import ContactsCapability
 from .device import DeviceCapability
 from .files import FilesCapability
+from .flashlight import FlashlightCapability
 from .location import LocationCapability
 from .media import MediaCapability
 from .notification import NotificationCapability
 from .sms import SmsCapability
+from .volume import VolumeCapability
 from .wifi import WifiCapability
 
 __all__ = [
@@ -32,4 +34,7 @@ __all__ = [
     "ClipboardCapability",
     "BatteryCapability",
     "DeviceCapability",
+    "FlashlightCapability",
+    "VolumeCapability",
 ]
+
