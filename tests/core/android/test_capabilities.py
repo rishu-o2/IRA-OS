@@ -9,7 +9,7 @@ from core.android.capabilities.bluetooth import BluetoothCapability
 from core.android.capabilities.clipboard import ClipboardCapability
 from core.android.capabilities.exceptions import InvalidArgumentError, PermissionDeniedError
 from core.android.capabilities.location import LocationCapability
-from core.android.models import SecurityLevel
+from core.android.models import SecurityLevel, CapabilityCategory
 from core.android.capabilities.wifi import WifiCapability
 from core.android.models import CapabilityDescriptor
 
@@ -28,9 +28,10 @@ class BadCapability(BaseAndroidCapability):
     def descriptor(self) -> CapabilityDescriptor:
         return CapabilityDescriptor(
             id="test.bad",
-            name="Bad",
-            description="Bad",
-            version="1",
+            name="Error Cap",
+            description="Throws errors",
+            version="1.0",
+            category=CapabilityCategory.DEVICE,
             security_level=SecurityLevel.LOW,
             supported_actions=("read",)
         )
@@ -80,7 +81,7 @@ async def test_clipboard_capability(sys_bridge):
 async def test_wifi_capability(net_bridge):
     cap = WifiCapability(net_bridge)
     assert "ACCESS_WIFI_STATE" in cap.descriptor.required_permissions
-    result = await cap.execute_action({})
+    result = await cap.execute_action({"action": "network.wifi.status"})
     assert result.success is True
     assert result.data["enabled"] is True
 
@@ -89,7 +90,7 @@ async def test_wifi_capability(net_bridge):
 async def test_bluetooth_capability(net_bridge):
     cap = BluetoothCapability(net_bridge)
     assert "BLUETOOTH" in cap.descriptor.required_permissions
-    result = await cap.execute_action({})
+    result = await cap.execute_action({"action": "network.bluetooth.status"})
     assert result.success is True
     assert result.data["enabled"] is False
 

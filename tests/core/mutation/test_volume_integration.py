@@ -20,10 +20,13 @@ Tests:
 import pytest
 
 from core.events import EventBus
+from core.execution.contracts import ExecutionClassifier, ExecutionType, ProtectedDispatcher
 from core.execution.models import ExecutionCommand, ExecutionOutcome, ExecutionOutcomeStatus
+from core.execution.service import DefaultExecutionService
 from core.logging import LoggerFactory
 from core.logging.sinks import NullSink
 from core.runtime.registry import InMemoryCapabilityRegistry
+from core.runtime.models import ExecutionContext, ExecutionRequest
 
 from core.android.bridge.system import MockSystemBridge
 from core.android.capabilities.volume import VolumeCapability
@@ -79,53 +82,32 @@ def volume_adapter(bridge: MockSystemBridge) -> DefaultAndroidAdapter:
 
 
 @pytest.fixture
-def execution_service(volume_adapter: DefaultAndroidAdapter):
-    """
-    Fake ExecutionService that:
-     1. Executes the AndroidAdapter directly (bypasses real Security for unit testing)
-     2. Propagates CapabilityResult.success=False as FAILED outcome
-    This mirrors how DefaultExecutionService maps adapter results in the real pipeline.
-    """
-    class FakeExecutionService:
-        async def execute(self, command: ExecutionCommand) -> ExecutionOutcome:
+def execution_service(volume_adapter: DefaultAndroidAdapter, event_bus):
+    class FakeProtectedDispatcher(ProtectedDispatcher):
+        async def dispatch(self, command: ExecutionCommand) -> ExecutionOutcome:
             try:
-                from core.runtime.models import ExecutionContext, ExecutionRequest
                 req = ExecutionRequest(
                     execution_id=command.command_id,
                     capability_id=command.capability_id,
                     arguments=command.arguments,
                     metadata=command.metadata,
                 )
-                ctx = ExecutionContext(
-                    request=req,
-                    capability_metadata=volume_adapter.metadata,
-                )
+                ctx = ExecutionContext(request=req, capability_metadata=volume_adapter.metadata)
                 result = await volume_adapter.execute(ctx)
-
-                # CapabilityResult.success=False → FAILED outcome
                 if hasattr(result, "success") and not result.success:
-                    return ExecutionOutcome(
-                        command_id=command.command_id,
-                        capability_id=command.capability_id,
-                        status=ExecutionOutcomeStatus.FAILED,
-                        error=getattr(result, "error_message", "Capability execution failed"),
-                    )
-
-                return ExecutionOutcome(
-                    command_id=command.command_id,
-                    capability_id=command.capability_id,
-                    status=ExecutionOutcomeStatus.SUCCEEDED,
-                    result_data=result,
-                )
+                    return ExecutionOutcome(command_id=command.command_id, capability_id=command.capability_id,
+                                           status=ExecutionOutcomeStatus.FAILED,
+                                           error=getattr(result, "error_message", "Capability execution failed"))
+                return ExecutionOutcome(command_id=command.command_id, capability_id=command.capability_id,
+                                       status=ExecutionOutcomeStatus.SUCCEEDED, result_data=result)
             except Exception as exc:
-                return ExecutionOutcome(
-                    command_id=command.command_id,
-                    capability_id=command.capability_id,
-                    status=ExecutionOutcomeStatus.FAILED,
-                    error=str(exc),
-                )
+                return ExecutionOutcome(command_id=command.command_id, capability_id=command.capability_id,
+                                       status=ExecutionOutcomeStatus.FAILED, error=str(exc))
 
-    return FakeExecutionService()
+    class AllMutationClassifier(ExecutionClassifier):
+        def classify(self, command): return ExecutionType.MUTATION
+
+    return FakeProtectedDispatcher(), AllMutationClassifier(), event_bus
 
 
 @pytest.fixture
@@ -135,20 +117,26 @@ async def mutation_manager(
     execution_service,
     volume_adapter: DefaultAndroidAdapter,
 ):
+    protected_dispatcher, classifier, _ = execution_service
     registry = InMemoryCapabilityRegistry(event_bus)
     await registry.register(volume_adapter)
 
     audit_mgr = AuditManager(logger)
     audit_mgr.register_sink(InMemoryAuditSink())
-
     conf_mgr = ConfirmationManager(logger)
     conf_mgr.register_provider(AutoConfirmProvider())
 
-    return DefaultMutationManager(
-        execution_service=execution_service,
+    mgr = DefaultMutationManager(
         capability_registry=registry,
         confirmation_manager=conf_mgr,
         audit_manager=audit_mgr,
+        event_bus=event_bus,
+        logger=logger,
+    )
+    return DefaultExecutionService(
+        classifier=classifier,
+        protected_dispatcher=protected_dispatcher,
+        mutation_manager=mgr,
         event_bus=event_bus,
         logger=logger,
     )

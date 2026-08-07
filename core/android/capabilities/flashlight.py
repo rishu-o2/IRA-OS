@@ -2,7 +2,7 @@ from typing import Any, Mapping
 
 from core.android.bridge.contracts import SystemBridge
 from core.android.capabilities.base import BaseAndroidCapability
-from core.android.models import CapabilityDescriptor, SecurityLevel, ConfirmationLevel
+from core.android.models import CapabilityDescriptor, SecurityLevel, ConfirmationLevel, CapabilityCategory
 
 
 class FlashlightCapability(BaseAndroidCapability):
@@ -21,6 +21,7 @@ class FlashlightCapability(BaseAndroidCapability):
             name="Flashlight Control",
             description="Controls the device flashlight",
             version="1.0.0",
+            category=CapabilityCategory.DEVICE,
             security_level=SecurityLevel.LOW,
             supported_actions=(
                 "system.flashlight.on",

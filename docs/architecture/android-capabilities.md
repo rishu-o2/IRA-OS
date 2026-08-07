@@ -29,12 +29,29 @@ system.volume.down         (args: {"step": int, default 10})
 system.volume.mute
 system.volume.unmute
 
+system.brightness.get
+system.brightness.set          (args: {"value": int 0–100})
+system.brightness.increase     (args: {"step": int, default 10})
+system.brightness.decrease     (args: {"step": int, default 10})
+system.brightness.auto_on
+system.brightness.auto_off
+
+system.vibrate.start        (args: {"duration_ms": int})
+system.vibrate.cancel
+
+system.dnd.get
+system.dnd.set              (args: {"mode": str})
+
+system.rotation.get
+system.rotation.lock        (args: {"orientation": str})
+system.rotation.unlock
+
+system.screen_timeout.get
+system.screen_timeout.set             (args: {"duration_ms": int})
+system.screen_timeout.get_supported
+
 # Future (planned)
-system.brightness.set
-system.rotation.lock
-system.vibrate
 system.sleep
-system.do_not_disturb
 ```
 
 ---
@@ -71,8 +88,13 @@ No step may be bypassed. The `ExecutionService` is the single authoritative entr
 |---|---|---|---|---|
 | `android.hardware.flashlight` | `FlashlightCapability` | Mutation | Logical inversion | ADR-0018 |
 | `android.device.volume` | `VolumeCapability` | Mutation | Pre-state precise | ADR-0019 |
+| `android.device.brightness` | `BrightnessCapability` | Mutation | Pre-state precise | ADR-0020 |
 | `android.device.battery` | `BatteryCapability` | Read-only | N/A | — |
 | `android.device.clipboard.read` | `ClipboardCapability` | Read-only | N/A | — |
+| `android.device.vibrate` | `VibrateCapability` | Ephemeral Mutation | Logical inversion | ADR-0021 |
+| `android.device.dnd` | `DoNotDisturbCapability` | Mutation | Pre-state precise | ADR-0021 |
+| `android.device.rotation` | `RotationCapability` | Mutation | Pre-state precise | ADR-0021 |
+| `android.device.screen_timeout` | `ScreenTimeoutCapability` | Mutation | Pre-state precise | ADR-0021 |
 
 ---
 

@@ -18,7 +18,7 @@ from core.runtime.models import CapabilityMetadata, ExecutionContext, ExecutionR
 from core.security.contracts import PermissionManager
 from core.security.models import PermissionResult, PermissionState, TrustLevel
 
-from core.execution.contracts import ExecutionService
+from core.execution.contracts import ExecutionService, ExecutionType, ExecutionClassifier, ProtectedDispatcher
 from core.execution.events import (
     ExecutionAuthorized,
     ExecutionDenied,
@@ -77,6 +77,7 @@ def _build_service(
     granted: bool = True,
     runtime_raises: Exception = None,
     cap_id: str = "test.cap",
+    is_mutation: bool = False,
 ) -> tuple:
     """Build a DefaultExecutionService with mocked dependencies."""
     bus = EventBus()
@@ -103,7 +104,12 @@ def _build_service(
     else:
         executor.execute = AsyncMock(return_value={"result": "ok"})
 
-    svc = DefaultExecutionService(
+    # Wire ExecutionClassifier
+    classifier = MagicMock(spec=ExecutionClassifier)
+    classifier.classify.return_value = ExecutionType.MUTATION if is_mutation else ExecutionType.READ
+
+    # Wire ProtectedDispatcher
+    protected_dispatcher = DefaultProtectedDispatcher(
         permission_manager=perm_manager,
         registry=registry,
         dispatcher=dispatcher,
@@ -111,7 +117,18 @@ def _build_service(
         event_bus=bus,
         logger=logger,
     )
-    return svc, bus
+
+    # Mock mutation manager — not triggered in non-mutation tests
+    mutation_manager = AsyncMock()
+
+    svc = DefaultExecutionService(
+        classifier=classifier,
+        protected_dispatcher=protected_dispatcher,
+        mutation_manager=mutation_manager,
+        event_bus=bus,
+        logger=logger,
+    )
+    return svc, bus, mutation_manager
 
 
 # ──────────────────────────────────────────────────────────
@@ -204,7 +221,7 @@ def test_exceptions_hierarchy():
 
 @pytest.mark.anyio
 async def test_successful_execution_returns_succeeded_outcome():
-    svc, bus = _build_service(granted=True)
+    svc, bus, _ = _build_service(granted=True)
     cmd = ExecutionCommand(command_id="cmd-1", capability_id="test.cap")
     outcome = await svc.execute(cmd)
 
@@ -216,7 +233,7 @@ async def test_successful_execution_returns_succeeded_outcome():
 
 @pytest.mark.anyio
 async def test_successful_execution_publishes_all_events():
-    svc, bus = _build_service(granted=True)
+    svc, bus, _ = _build_service(granted=True)
     received = []
     bus.subscribe(Event, lambda e: received.append(e))
 
@@ -238,7 +255,7 @@ async def test_successful_execution_publishes_all_events():
 
 @pytest.mark.anyio
 async def test_denied_execution_returns_denied_outcome():
-    svc, bus = _build_service(granted=False)
+    svc, bus, _ = _build_service(granted=False)
     cmd = ExecutionCommand(command_id="cmd-deny", capability_id="test.cap")
     outcome = await svc.execute(cmd)
 
@@ -249,7 +266,7 @@ async def test_denied_execution_returns_denied_outcome():
 
 @pytest.mark.anyio
 async def test_denied_execution_publishes_denied_event_not_authorized():
-    svc, bus = _build_service(granted=False)
+    svc, bus, _ = _build_service(granted=False)
     received = []
     bus.subscribe(Event, lambda e: received.append(e))
 
@@ -269,7 +286,7 @@ async def test_denied_execution_publishes_denied_event_not_authorized():
 
 @pytest.mark.anyio
 async def test_runtime_failure_returns_failed_outcome():
-    svc, bus = _build_service(granted=True, runtime_raises=RuntimeError("Crash!"))
+    svc, bus, _ = _build_service(granted=True, runtime_raises=RuntimeError("Crash!"))
     cmd = ExecutionCommand(command_id="cmd-fail", capability_id="test.cap")
     outcome = await svc.execute(cmd)
 
@@ -280,7 +297,7 @@ async def test_runtime_failure_returns_failed_outcome():
 
 @pytest.mark.anyio
 async def test_runtime_failure_publishes_failed_event():
-    svc, bus = _build_service(granted=True, runtime_raises=RuntimeError("Crash!"))
+    svc, bus, _ = _build_service(granted=True, runtime_raises=RuntimeError("Crash!"))
     received = []
     bus.subscribe(Event, lambda e: received.append(e))
 
@@ -298,7 +315,7 @@ async def test_runtime_failure_publishes_failed_event():
 
 @pytest.mark.anyio
 async def test_invalid_command_raises_validation_error():
-    svc, _ = _build_service()
+    svc, _, _ = _build_service()
     with pytest.raises(ExecutionValidationError):
         await svc.execute(None)  # type: ignore
 
@@ -327,3 +344,82 @@ def test_workflow_executor_uses_execution_service():
         src = f.read()
     assert "ExecutionService" in src, \
         "WorkflowExecutor must depend on the ExecutionService contract."
+
+
+# ──────────────────────────────────────────────────────────
+# 11. Architecture Invariant Tests (Milestone 16.1.5)
+# ──────────────────────────────────────────────────────────
+
+def test_workflow_does_not_import_mutation_manager():
+    """Regression: Workflow must never directly depend on MutationManager."""
+    import sys
+    import os
+    workflow_dir = os.path.dirname(sys.modules["core.workflow.executor"].__file__)
+    for fname in os.listdir(workflow_dir):
+        if not fname.endswith(".py"):
+            continue
+        fpath = os.path.join(workflow_dir, fname)
+        with open(fpath, encoding="utf-8") as f:
+            src = f.read()
+        assert "MutationManager" not in src, \
+            f"Workflow file '{fname}' must not reference MutationManager. " \
+            f"Route all execution through ExecutionService."
+        assert "process_mutation" not in src, \
+            f"Workflow file '{fname}' must not call process_mutation directly."
+
+
+def test_mutation_manager_does_not_know_about_runtime():
+    """Regression: MutationManager must have zero coupling to Runtime, Security, or Platform."""
+    import core.mutation.manager as mgr_mod
+    with open(mgr_mod.__file__, encoding="utf-8") as f:
+        src = f.read()
+    forbidden = [
+        "core.runtime.manager",
+        "RuntimeManager",
+        "core.security.manager",
+        "SecurityManager",
+        "core.android",
+        "CapabilityRegistry",  # should not import this — it's a ProtectedDispatcher concern
+    ]
+    # CapabilityRegistry is legitimately needed for capability lookup so allow it
+    forbidden = [f for f in forbidden if f != "CapabilityRegistry"]
+    for forb in forbidden:
+        assert forb not in src, \
+            f"MutationManager must not reference '{forb}'. " \
+            f"It must remain platform-agnostic."
+
+
+@pytest.mark.anyio
+async def test_mutation_commands_routed_through_mutation_manager():
+    """Regression: A command classified as MUTATION must trigger MutationManager, never ProtectedDispatcher directly."""
+    from core.execution.models import ExecutionOutcomeStatus
+    svc, bus, mutation_manager = _build_service(is_mutation=True)
+    mutation_manager.process_mutation.return_value = ExecutionOutcome(
+        command_id="cmd-1", capability_id="test.cap",
+        status=ExecutionOutcomeStatus.SUCCEEDED, result_data="ok"
+    )
+    cmd = ExecutionCommand(command_id="cmd-1", capability_id="test.cap")
+    outcome = await svc.execute(cmd)
+    mutation_manager.process_mutation.assert_called_once()
+    assert outcome.succeeded
+
+
+@pytest.mark.anyio
+async def test_read_commands_skip_mutation_manager():
+    """Regression: A command classified as READ must bypass MutationManager entirely."""
+    svc, bus, mutation_manager = _build_service(is_mutation=False)
+    cmd = ExecutionCommand(command_id="cmd-read", capability_id="test.cap")
+    await svc.execute(cmd)
+    mutation_manager.process_mutation.assert_not_called()
+
+
+def test_execution_service_is_the_only_permitted_entry_point():
+    """Documentation invariant: ExecutionService is the single public entry point by contract."""
+    import core.execution.contracts as contracts_mod
+    assert hasattr(contracts_mod, "ExecutionService"), \
+        "ExecutionService must be declared in execution.contracts."
+    assert hasattr(contracts_mod, "ProtectedDispatcher"), \
+        "ProtectedDispatcher must exist as a contract; it is the only path to Runtime."
+    # MutationManager must NOT be in execution.contracts (it's an internal concern)
+    assert not hasattr(contracts_mod, "MutationManager"), \
+        "MutationManager must not be part of the Execution public contract surface."

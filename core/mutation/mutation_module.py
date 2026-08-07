@@ -1,6 +1,5 @@
 from core.container import ContainerProtocol, Lifetime, Module
 from core.events import EventBus
-from core.execution.contracts import ExecutionService
 from core.logging import LoggerFactory
 from core.runtime.interfaces import CapabilityRegistry
 
@@ -14,8 +13,11 @@ class MutationModule(Module):
     """
     DI module for the Mutation Lifecycle Framework subsystem.
 
-    Registers the MutationManager as a first-class kernel singleton.
-    Depends on: ExecutionModule, RuntimeModule (must be installed first).
+    Registers MutationManager as a kernel singleton owned by ExecutionService.
+    MutationManager does NOT depend on ExecutionService. It receives a
+    ProtectedDispatcher at call time from DefaultExecutionService.
+
+    Depends on: RuntimeModule (must be installed first for CapabilityRegistry).
     """
 
     def configure(self, container: ContainerProtocol) -> None:
@@ -24,7 +26,6 @@ class MutationModule(Module):
             logger_factory = await container.resolve(LoggerFactory)
             logger = logger_factory.get("core.mutation.audit")
             manager = AuditManager(logger)
-            # Register default sink for now
             manager.register_sink(InMemoryAuditSink())
             return manager
 
@@ -34,7 +35,6 @@ class MutationModule(Module):
             return ConfirmationManager(logger)
 
         async def build_mutation_manager() -> MutationManager:
-            execution_service = await container.resolve(ExecutionService)
             registry = await container.resolve(CapabilityRegistry)
             confirmation_manager = await container.resolve(ConfirmationManager)
             audit_manager = await container.resolve(AuditManager)
@@ -43,7 +43,6 @@ class MutationModule(Module):
             logger = logger_factory.get("core.mutation")
 
             return DefaultMutationManager(
-                execution_service=execution_service,
                 capability_registry=registry,
                 confirmation_manager=confirmation_manager,
                 audit_manager=audit_manager,

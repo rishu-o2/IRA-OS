@@ -1,5 +1,6 @@
 """
 Tests for the Mutation Lifecycle Framework (Milestone 16.1).
+Updated for Milestone 16.1.5: MutationManager now receives a ProtectedDispatcher.
 """
 import inspect
 import pytest
@@ -7,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from core.container import Container, ContainerProtocol
 from core.events import Event, EventBus
-from core.execution.contracts import ExecutionService
+from core.execution.contracts import ProtectedDispatcher
 from core.execution.models import ExecutionCommand, ExecutionOutcome, ExecutionOutcomeStatus
 from core.logging import LoggerFactory
 from core.logging.sinks import NullSink
@@ -39,31 +40,42 @@ def anyio_backend():
     return "asyncio"
 
 
-def _build_deps():
+def _make_dispatcher(succeed: bool = True, error: str = "fail") -> ProtectedDispatcher:
+    """Build a mock ProtectedDispatcher that succeeds or fails."""
+    dispatcher = AsyncMock(spec=ProtectedDispatcher)
+    if succeed:
+        dispatcher.dispatch.return_value = ExecutionOutcome(
+            command_id="cmd-1", capability_id="test.cap",
+            status=ExecutionOutcomeStatus.SUCCEEDED, result_data="ok"
+        )
+    else:
+        dispatcher.dispatch.return_value = ExecutionOutcome(
+            command_id="cmd-1", capability_id="test.cap",
+            status=ExecutionOutcomeStatus.FAILED, error=error
+        )
+    return dispatcher
+
+
+def _build_deps(dispatcher: ProtectedDispatcher = None):
     bus = EventBus()
     logger = LoggerFactory(sinks=[NullSink()]).get("test")
-    
-    execution_service = AsyncMock(spec=ExecutionService)
-    execution_service.execute.return_value = ExecutionOutcome(
-        command_id="cmd-1", capability_id="test.cap", status=ExecutionOutcomeStatus.SUCCEEDED, result_data="ok"
-    )
-    
+
     registry = MagicMock(spec=CapabilityRegistry)
-    
+
     audit_mgr = AuditManager(logger)
     audit_mgr.register_sink(InMemoryAuditSink())
-    
+
     conf_mgr = ConfirmationManager(logger)
-    
+
     manager = DefaultMutationManager(
-        execution_service=execution_service,
         capability_registry=registry,
         confirmation_manager=conf_mgr,
         audit_manager=audit_mgr,
         event_bus=bus,
         logger=logger,
     )
-    return manager, bus, registry, execution_service, conf_mgr, audit_mgr
+    _dispatcher = dispatcher or _make_dispatcher()
+    return manager, bus, registry, _dispatcher, conf_mgr, audit_mgr
 
 
 # ──────────────────────────────────────────────────────────
@@ -89,6 +101,17 @@ def test_import_safety_no_forbidden():
                 assert forb not in src, f"Forbidden import '{forb}' found in {mod_name}"
 
 
+def test_mutation_manager_does_not_import_runtime():
+    """MutationManager must have ZERO knowledge of Runtime, Security, or Bridges."""
+    import core.mutation.manager as mgr_mod
+    with open(mgr_mod.__file__, encoding="utf-8") as f:
+        src = f.read()
+    forbidden = ["core.runtime.manager", "core.security.manager", "core.android", "SecurityManager", "RuntimeManager"]
+    for forb in forbidden:
+        assert forb not in src, \
+            f"MutationManager must not reference '{forb}'. It is platform-agnostic."
+
+
 # ──────────────────────────────────────────────────────────
 # 2. Immutable Models & Contracts
 # ──────────────────────────────────────────────────────────
@@ -111,21 +134,21 @@ def test_contracts_are_abstract():
 
 @pytest.mark.anyio
 async def test_successful_mutation_no_confirmation():
-    mgr, bus, reg, exec_svc, _, _ = _build_deps()
-    
+    mgr, bus, reg, dispatcher, _, _ = _build_deps()
+
     cap = MagicMock()
     mutation_meta = MutationMetadata(confirmation_level=ConfirmationLevel.NONE, audit_required=True)
     cap.metadata = CapabilityMetadata(id="test.cap", name="Test", description="", version="1", mutation=mutation_meta)
     reg.lookup.return_value = cap
-    
+
     events = []
     bus.subscribe(Event, lambda e: events.append(e))
-    
+
     cmd = ExecutionCommand(command_id="cmd-1", capability_id="test.cap")
-    outcome = await mgr.process_mutation(cmd)
-    
+    outcome = await mgr.process_mutation(cmd, dispatcher)
+
     assert outcome.succeeded
-    
+
     event_types = {type(e) for e in events}
     assert MutationRequested in event_types
     assert MutationStarted in event_types
@@ -146,20 +169,20 @@ class MockProvider(ConfirmationProvider):
 
 @pytest.mark.anyio
 async def test_confirmation_granted():
-    mgr, bus, reg, exec_svc, conf_mgr, _ = _build_deps()
+    mgr, bus, reg, dispatcher, conf_mgr, _ = _build_deps()
     conf_mgr.register_provider(MockProvider())
-    
+
     cap = MagicMock()
     mutation_meta = MutationMetadata(confirmation_level=ConfirmationLevel.USER)
     cap.metadata = CapabilityMetadata(id="test.cap", name="Test", description="", version="1", mutation=mutation_meta)
     reg.lookup.return_value = cap
-    
+
     events = []
     bus.subscribe(Event, lambda e: events.append(e))
-    
+
     cmd = ExecutionCommand(command_id="cmd-1", capability_id="test.cap")
-    outcome = await mgr.process_mutation(cmd)
-    
+    outcome = await mgr.process_mutation(cmd, dispatcher)
+
     assert outcome.succeeded
     event_types = {type(e) for e in events}
     assert MutationConfirmed in event_types
@@ -177,24 +200,24 @@ class DenyingProvider(ConfirmationProvider):
 
 @pytest.mark.anyio
 async def test_confirmation_denied():
-    mgr, bus, reg, exec_svc, conf_mgr, _ = _build_deps()
+    mgr, bus, reg, dispatcher, conf_mgr, _ = _build_deps()
     conf_mgr.register_provider(DenyingProvider())
-    
+
     cap = MagicMock()
     mutation_meta = MutationMetadata(confirmation_level=ConfirmationLevel.USER)
     cap.metadata = CapabilityMetadata(id="test.cap", name="Test", description="", version="1", mutation=mutation_meta)
     reg.lookup.return_value = cap
-    
+
     events = []
     bus.subscribe(Event, lambda e: events.append(e))
-    
+
     cmd = ExecutionCommand(command_id="cmd-1", capability_id="test.cap")
-    outcome = await mgr.process_mutation(cmd)
-    
+    outcome = await mgr.process_mutation(cmd, dispatcher)
+
     assert outcome.denied
     assert "Confirmation denied" in outcome.denial_reason
-    exec_svc.execute.assert_not_called()
-    
+    dispatcher.dispatch.assert_not_called()
+
     event_types = {type(e) for e in events}
     assert MutationRejected in event_types
     assert AuditRecorded in event_types  # Rejections are audited
@@ -214,25 +237,23 @@ class DummyMutatingCap(MutatingCapability):
 
 @pytest.mark.anyio
 async def test_rollback_on_failure():
-    mgr, bus, reg, exec_svc, _, _ = _build_deps()
-    exec_svc.execute.return_value = ExecutionOutcome(
-        command_id="c", capability_id="c", status=ExecutionOutcomeStatus.FAILED, error="fail"
-    )
-    
+    failing_dispatcher = _make_dispatcher(succeed=False, error="fail")
+    mgr, bus, reg, _, _, _ = _build_deps()
+
     cap = DummyMutatingCap()
     cap._metadata = CapabilityMetadata(id="test.cap", name="Test", description="", version="1", mutation=MutationMetadata(supports_rollback=True))
     cap.rollback = AsyncMock()
     reg.lookup.return_value = cap
-    
+
     events = []
     bus.subscribe(Event, lambda e: events.append(e))
-    
+
     cmd = ExecutionCommand(command_id="cmd-1", capability_id="test.cap")
-    outcome = await mgr.process_mutation(cmd)
-    
+    outcome = await mgr.process_mutation(cmd, failing_dispatcher)
+
     assert outcome.failed
     cap.rollback.assert_called_once()
-    
+
     event_types = {type(e) for e in events}
     assert MutationRolledBack in event_types
 
@@ -245,17 +266,17 @@ async def test_rollback_on_failure():
 async def test_audit_manager_raises_on_all_failures():
     logger = LoggerFactory(sinks=[NullSink()]).get("test")
     mgr = AuditManager(logger)
-    
+
     from core.mutation.contracts import AuditSink
 
     class FailingSink(AuditSink):
         async def record(self, r): raise Exception("db down")
-        
+
     mgr.register_sink(FailingSink())
-    
+
     from core.mutation.models import AuditRecord
     from datetime import datetime
-    
+
     rec = AuditRecord("a", "m", "c", "x", {}, MutationState.COMPLETED, datetime.now())
     with pytest.raises(AuditError):
         await mgr.record(rec)

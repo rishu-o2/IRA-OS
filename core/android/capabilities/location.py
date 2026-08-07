@@ -1,6 +1,6 @@
 from typing import Any, Mapping
 
-from core.android.models import CapabilityDescriptor, SecurityLevel
+from core.android.models import CapabilityDescriptor, SecurityLevel, CapabilityCategory
 
 from .base import BaseAndroidCapability
 
@@ -22,7 +22,8 @@ class LocationCapability(BaseAndroidCapability):
             name="Coarse Location",
             description="Reads the current coarse device location.",
             version="1.0.0",
-            security_level=SecurityLevel.LOW,
+            category=CapabilityCategory.SENSORS,
+            security_level=SecurityLevel.HIGH,
             required_permissions=("ACCESS_COARSE_LOCATION",),
             supported_actions=("read", "default")
         )

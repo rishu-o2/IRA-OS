@@ -9,6 +9,19 @@ class AndroidRuntimeStatus(Enum):
     STOPPED = "STOPPED"
 
 
+class CapabilityCategory(Enum):
+    """Semantic category for discovery and organization."""
+    DEVICE = "DEVICE"
+    DISPLAY = "DISPLAY"
+    AUDIO = "AUDIO"
+    NETWORK = "NETWORK"
+    FILES = "FILES"
+    COMMUNICATION = "COMMUNICATION"
+    MEDIA = "MEDIA"
+    SENSORS = "SENSORS"
+    APPLICATIONS = "APPLICATIONS"
+
+
 class CapabilityState(Enum):
     AVAILABLE = "AVAILABLE"
     UNAVAILABLE = "UNAVAILABLE"
@@ -37,11 +50,13 @@ class CapabilityDescriptor:
     name: str
     description: str
     version: str
+    category: CapabilityCategory
     security_level: SecurityLevel
     required_permissions: tuple[str, ...] = ()
     requires_confirmation: bool = False
     supported_actions: tuple[str, ...] = ()
     dependencies: tuple[str, ...] = ()
+    conflicts_with: tuple[str, ...] = ()
     is_mutation: bool = False
     supports_rollback: bool = False
     audit_required: bool = False

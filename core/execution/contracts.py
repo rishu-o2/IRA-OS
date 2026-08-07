@@ -1,7 +1,30 @@
 from abc import ABC, abstractmethod
+from enum import Enum
 
 from .models import ExecutionCommand, ExecutionOutcome
 
+class ExecutionType(Enum):
+    READ = "READ"
+    MUTATION = "MUTATION"
+
+class ExecutionClassifier(ABC):
+    """
+    Classifies a command as either READ or MUTATION.
+    Prevents ExecutionService from coupling to capability metadata details.
+    """
+    @abstractmethod
+    def classify(self, command: ExecutionCommand) -> ExecutionType:
+        pass
+
+class ProtectedDispatcher(ABC):
+    """
+    Contract for protected dispatch into the Security and Runtime layers.
+    Used by internal orchestrators (like MutationManager) to trigger
+    actual execution once lifecycle rules are satisfied.
+    """
+    @abstractmethod
+    async def dispatch(self, command: ExecutionCommand) -> ExecutionOutcome:
+        pass
 
 class ExecutionService(ABC):
     """

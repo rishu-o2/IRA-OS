@@ -25,6 +25,19 @@ class MockSystemBridge(SystemBridge):
         # Volume state
         self._volume_level: int = self._DEFAULT_VOLUME
         self._volume_muted: bool = False
+        # Brightness state
+        self._brightness_level: int = 50
+        self._brightness_auto: bool = True
+        # Vibrate state
+        self._is_vibrating: bool = False
+        # DND state
+        self._dnd_mode: str = "OFF"
+        # Rotation state
+        self._rotation_locked: bool = False
+        self._rotation_orientation: str = "PORTRAIT"
+        # Screen timeout state
+        self._screen_timeout_ms: int = 60000
+        self._supported_timeouts = [15000, 30000, 60000, 120000, 300000, 600000, 1800000]
 
     # ── Execute dispatcher ─────────────────────────────────────────────────────
 
@@ -98,6 +111,117 @@ class MockSystemBridge(SystemBridge):
                 "level": self._volume_level,
                 "muted": False,
                 "pre_state": {"level": pre_level, "muted": pre_muted},
+            }
+
+        # ── Brightness ────────────────────────────────────────────────────────
+        if action == "system.brightness.get":
+            return {
+                "level": self._brightness_level,
+                "auto": self._brightness_auto,
+            }
+        if action == "system.brightness.set":
+            value = int(args.get("value", self._brightness_level))
+            pre_level, pre_auto = self._brightness_level, self._brightness_auto
+            self._brightness_level = max(0, min(100, value))
+            return {
+                "level": self._brightness_level,
+                "auto": self._brightness_auto,
+                "pre_state": {"level": pre_level, "auto": pre_auto},
+            }
+        if action == "system.brightness.increase":
+            step = int(args.get("step", 10))
+            pre_level, pre_auto = self._brightness_level, self._brightness_auto
+            self._brightness_level = min(100, self._brightness_level + step)
+            return {
+                "level": self._brightness_level,
+                "auto": self._brightness_auto,
+                "pre_state": {"level": pre_level, "auto": pre_auto},
+            }
+        if action == "system.brightness.decrease":
+            step = int(args.get("step", 10))
+            pre_level, pre_auto = self._brightness_level, self._brightness_auto
+            self._brightness_level = max(0, self._brightness_level - step)
+            return {
+                "level": self._brightness_level,
+                "auto": self._brightness_auto,
+                "pre_state": {"level": pre_level, "auto": pre_auto},
+            }
+        if action == "system.brightness.auto_on":
+            pre_level, pre_auto = self._brightness_level, self._brightness_auto
+            self._brightness_auto = True
+            return {
+                "level": self._brightness_level,
+                "auto": True,
+                "pre_state": {"level": pre_level, "auto": pre_auto},
+            }
+        if action == "system.brightness.auto_off":
+            pre_level, pre_auto = self._brightness_level, self._brightness_auto
+            self._brightness_auto = False
+            return {
+                "level": self._brightness_level,
+                "auto": False,
+                "pre_state": {"level": pre_level, "auto": pre_auto},
+            }
+
+        # ── Vibrate ──────────────────────────────────────────────────────────
+        if action == "system.vibrate.start":
+            self._is_vibrating = True
+            return {"success": True}
+        if action == "system.vibrate.cancel":
+            self._is_vibrating = False
+            return {"success": True}
+
+        # ── Do Not Disturb ───────────────────────────────────────────────────
+        if action == "system.dnd.get":
+            return {"mode": self._dnd_mode}
+        if action == "system.dnd.set":
+            mode = args.get("mode", "OFF")
+            pre_mode = self._dnd_mode
+            self._dnd_mode = mode
+            return {
+                "mode": self._dnd_mode,
+                "pre_state": {"mode": pre_mode}
+            }
+
+        # ── Rotation ─────────────────────────────────────────────────────────
+        if action == "system.rotation.get":
+            return {
+                "locked": self._rotation_locked,
+                "orientation": self._rotation_orientation
+            }
+        if action == "system.rotation.lock":
+            orientation = args.get("orientation", self._rotation_orientation)
+            pre_locked = self._rotation_locked
+            pre_orientation = self._rotation_orientation
+            self._rotation_locked = True
+            self._rotation_orientation = orientation
+            return {
+                "locked": True,
+                "orientation": self._rotation_orientation,
+                "pre_state": {"locked": pre_locked, "orientation": pre_orientation}
+            }
+        if action == "system.rotation.unlock":
+            pre_locked = self._rotation_locked
+            pre_orientation = self._rotation_orientation
+            self._rotation_locked = False
+            return {
+                "locked": False,
+                "orientation": self._rotation_orientation,
+                "pre_state": {"locked": pre_locked, "orientation": pre_orientation}
+            }
+
+        # ── Screen Timeout ───────────────────────────────────────────────────
+        if action == "system.screen_timeout.get":
+            return {"duration_ms": self._screen_timeout_ms}
+        if action == "system.screen_timeout.get_supported":
+            return {"supported": self._supported_timeouts}
+        if action == "system.screen_timeout.set":
+            duration_ms = args.get("duration_ms", self._screen_timeout_ms)
+            pre_duration = self._screen_timeout_ms
+            self._screen_timeout_ms = duration_ms
+            return {
+                "duration_ms": self._screen_timeout_ms,
+                "pre_state": {"duration_ms": pre_duration}
             }
 
         raise UnsupportedPlatformError(

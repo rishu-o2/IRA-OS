@@ -1,7 +1,7 @@
 from typing import Any, Mapping
 
 from core.android.bridge.contracts import SystemBridge
-from core.android.models import CapabilityDescriptor, SecurityLevel
+from core.android.models import CapabilityDescriptor, SecurityLevel, CapabilityCategory
 
 from .base import BaseAndroidCapability
 
@@ -23,6 +23,7 @@ class BatteryCapability(BaseAndroidCapability):
             name="Battery Status",
             description="Reads device battery level and charging status.",
             version="1.0.0",
+            category=CapabilityCategory.DEVICE,
             security_level=SecurityLevel.LOW,
             supported_actions=("read", "default")
         )

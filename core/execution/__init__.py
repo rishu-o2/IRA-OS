@@ -8,7 +8,7 @@ Canonical pipeline:
     Brain → Planner → Workflow → ExecutionService → Security → Runtime → Platform
 """
 
-from .contracts import ExecutionService
+from .contracts import ExecutionService, ExecutionClassifier, ExecutionType, ProtectedDispatcher
 from .exceptions import (
     ExecutionServiceError,
     ExecutionPermissionDeniedError,
@@ -33,6 +33,9 @@ from .execution_module import ExecutionModule
 __all__ = [
     # Public contracts
     "ExecutionService",
+    "ExecutionClassifier",
+    "ExecutionType",
+    "ProtectedDispatcher",
     "ExecutionModule",
     # Models
     "ExecutionCommand",

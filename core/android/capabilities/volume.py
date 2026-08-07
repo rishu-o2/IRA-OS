@@ -18,7 +18,7 @@ from typing import Any, Mapping, Optional
 from core.android.bridge.contracts import SystemBridge
 from core.android.capabilities.base import BaseAndroidCapability
 from core.android.capabilities.exceptions import InvalidArgumentError
-from core.android.models import CapabilityDescriptor, ConfirmationLevel, SecurityLevel
+from core.android.models import CapabilityDescriptor, ConfirmationLevel, SecurityLevel, CapabilityCategory
 
 
 # ── Action constants ───────────────────────────────────────────────────────────
@@ -70,10 +70,11 @@ class VolumeCapability(BaseAndroidCapability):
             id="android.device.volume",
             name="Volume Control",
             description=(
-                "Controls device audio volume including set, step up/down, "
-                "mute, and unmute. Supports precise rollback using pre-state capture."
+                "Controls device media volume including absolute set, step up/down, "
+                "and mute/unmute. Supports precise rollback using pre-state capture."
             ),
             version="1.0.0",
+            category=CapabilityCategory.AUDIO,
             security_level=SecurityLevel.NORMAL,
             required_permissions=(),
             supported_actions=(

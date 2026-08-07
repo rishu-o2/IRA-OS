@@ -6,17 +6,19 @@ from core.runtime.interfaces import Capability
 from .models import AuditRecord, ConfirmationLevel, MutationContext, MutationState
 
 
+from core.execution.contracts import ProtectedDispatcher
+
 class MutationManager(ABC):
     """
     Coordinates the mutation lifecycle.
     
-    The MutationManager does NOT execute capabilities. It wraps the execution
-    (provided by the ExecutionService) in the mutation lifecycle:
-    Confirmation -> Execution -> Audit -> Rollback (if failed).
+    The MutationManager does NOT execute capabilities directly. It orchestrates
+    the mutation lifecycle:
+    Confirmation -> Protected Dispatch -> Audit -> Rollback (if failed).
     """
 
     @abstractmethod
-    async def process_mutation(self, command: ExecutionCommand) -> ExecutionOutcome:
+    async def process_mutation(self, command: ExecutionCommand, dispatcher: ProtectedDispatcher) -> ExecutionOutcome:
         """
         Process a mutation command through the full lifecycle.
         """

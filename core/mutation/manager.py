@@ -1,9 +1,9 @@
 import uuid
 from datetime import datetime, timezone
-from typing import Mapping
+from typing import Any, Mapping
 
 from core.events import EventBus
-from core.execution.contracts import ExecutionService
+from core.execution.contracts import ProtectedDispatcher
 from core.execution.models import ExecutionCommand, ExecutionOutcome, ExecutionOutcomeStatus
 from core.logging import Logger
 from core.runtime.interfaces import CapabilityRegistry
@@ -32,28 +32,29 @@ class DefaultMutationManager(MutationManager):
     Responsibilities:
     1. Check capability metadata.
     2. Coordinate confirmation (if required).
-    3. Delegate execution to ExecutionService.
+    3. Delegate execution to ProtectedDispatcher (provided by ExecutionService).
     4. Coordinate audit persistence.
     5. Coordinate rollback (if execution fails or requires undo).
+
+    This class is NOT public. It is owned and invoked solely by DefaultExecutionService.
+    It has zero knowledge of Runtime, Security, or any platform bridge.
     """
 
     def __init__(
         self,
-        execution_service: ExecutionService,
         capability_registry: CapabilityRegistry,
         confirmation_manager: ConfirmationManager,
         audit_manager: AuditManager,
         event_bus: EventBus,
         logger: Logger,
     ) -> None:
-        self._execution_service = execution_service
         self._registry = capability_registry
         self._confirmation_manager = confirmation_manager
         self._audit_manager = audit_manager
         self._event_bus = event_bus
         self._logger = logger
 
-    async def process_mutation(self, command: ExecutionCommand) -> ExecutionOutcome:
+    async def process_mutation(self, command: ExecutionCommand, dispatcher: ProtectedDispatcher) -> ExecutionOutcome:
         """
         Execute the full mutation lifecycle.
         """
@@ -126,7 +127,7 @@ class DefaultMutationManager(MutationManager):
             )
         )
 
-        outcome = await self._execution_service.execute(command)
+        outcome = await dispatcher.dispatch(command)
 
         # 5. Handle Failure and Rollback
         if outcome.failed and mutation_meta.supports_rollback:

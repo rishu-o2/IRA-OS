@@ -20,7 +20,8 @@ class BaseBridge(ABC):
 class SystemBridge(BaseBridge):
     """
     Bridge for device state and core system data.
-    Sub-domains: battery, clipboard, device info, storage, time, flashlight, volume.
+    Sub-domains: battery, clipboard, device info, storage, time, flashlight,
+    volume, brightness, vibrate, dnd, rotation, screen_timeout.
 
     Action Namespace: system.*
 
@@ -37,6 +38,32 @@ class SystemBridge(BaseBridge):
     - system.volume.down      (args: {"step": int, default 10})
     - system.volume.mute
     - system.volume.unmute
+
+    Brightness Actions:
+    - system.brightness.get
+    - system.brightness.set       (args: {"value": int 0-100})
+    - system.brightness.increase  (args: {"step": int, default 10})
+    - system.brightness.decrease  (args: {"step": int, default 10})
+    - system.brightness.auto_on
+    - system.brightness.auto_off
+
+    Vibrate Actions:
+    - system.vibrate.start        (args: {"duration_ms": int})
+    - system.vibrate.cancel
+
+    Do Not Disturb Actions:
+    - system.dnd.get
+    - system.dnd.set              (args: {"mode": str})
+
+    Rotation Actions:
+    - system.rotation.get
+    - system.rotation.lock        (args: {"orientation": str})
+    - system.rotation.unlock
+
+    Screen Timeout Actions:
+    - system.screen_timeout.get
+    - system.screen_timeout.set             (args: {"duration_ms": int})
+    - system.screen_timeout.get_supported
     """
     pass
 
@@ -45,7 +72,38 @@ class SystemBridge(BaseBridge):
 class NetworkBridge(BaseBridge):
     """
     Bridge for networking radios.
-    Sub-domains: wifi, bluetooth, hotspot, mobile network.
+    Sub-domains: wifi, bluetooth, hotspot, mobile_data, airplane_mode.
+
+    Action Namespace: network.*
+
+    WiFi Actions:
+    - network.wifi.status
+    - network.wifi.enable
+    - network.wifi.disable
+    - network.wifi.connect    (args: {"ssid": str, "password": str})
+    - network.wifi.disconnect
+
+    Bluetooth Actions:
+    - network.bluetooth.status
+    - network.bluetooth.enable
+    - network.bluetooth.disable
+    - network.bluetooth.pair   (args: {"device_id": str})
+    - network.bluetooth.unpair (args: {"device_id": str})
+
+    Mobile Data Actions:
+    - network.mobile_data.status
+    - network.mobile_data.enable
+    - network.mobile_data.disable
+
+    Hotspot Actions:
+    - network.hotspot.status
+    - network.hotspot.enable
+    - network.hotspot.disable
+
+    Airplane Mode Actions:
+    - network.airplane.status
+    - network.airplane.enable
+    - network.airplane.disable
     """
     pass
 
