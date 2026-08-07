@@ -24,6 +24,13 @@ class SecurityLevel(Enum):
     SYSTEM = "SYSTEM"
 
 
+class ConfirmationLevel(Enum):
+    NONE = "NONE"
+    USER = "USER"
+    PIN = "PIN"
+    BIOMETRIC = "BIOMETRIC"
+    OWNER_ONLY = "OWNER_ONLY"
+
 @dataclass(frozen=True)
 class CapabilityDescriptor:
     id: str
@@ -35,6 +42,11 @@ class CapabilityDescriptor:
     requires_confirmation: bool = False
     supported_actions: tuple[str, ...] = ()
     dependencies: tuple[str, ...] = ()
+    is_mutation: bool = False
+    supports_rollback: bool = False
+    audit_required: bool = False
+    confirmation_level: ConfirmationLevel = ConfirmationLevel.NONE
+    idempotent: bool = False
 
 
 @dataclass(frozen=True)

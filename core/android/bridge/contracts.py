@@ -21,6 +21,13 @@ class SystemBridge(BaseBridge):
     """
     Bridge for device state and core system data.
     Sub-domains: battery, clipboard, device info, storage, time.
+    
+    Action Namespace: system.*
+    Supported Actions:
+    - system.flashlight.on
+    - system.flashlight.off
+    - system.flashlight.toggle
+    - system.flashlight.status
     """
     pass
 
