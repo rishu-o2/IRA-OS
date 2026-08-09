@@ -150,3 +150,70 @@ class FilesBridge(BaseBridge):
 class SensorsBridge(BaseBridge):
     """Bridge for reading raw sensors (accelerometer, gyroscope)."""
     pass
+
+
+# ── Pack C: Communication Bridges ─────────────────────────────────────────────
+
+class CallBridge(BaseBridge):
+    """
+    Bridge for telephony call control.
+    Sub-domain: phone calls.
+
+    Action Namespace: telephony.phone.*
+
+    Actions:
+    - telephony.phone.status               — current call state
+    - telephony.phone.call   (args: {"number": str})
+    - telephony.phone.end
+    - telephony.phone.reject
+    """
+    pass
+
+
+class SMSBridge(BaseBridge):
+    """
+    Bridge for SMS messaging.
+    Sub-domain: sms.
+
+    Action Namespace: telephony.sms.*
+
+    Actions:
+    - telephony.sms.read     (args: {"message_id": str})
+    - telephony.sms.search   (args: {"query": str})
+    - telephony.sms.send     (args: {"number": str, "body": str})
+    - telephony.sms.delete   (args: {"message_id": str})
+    """
+    pass
+
+
+class ContactsBridge(BaseBridge):
+    """
+    Bridge for contact book management.
+    Sub-domain: contacts.
+
+    Action Namespace: telephony.contacts.*
+
+    Actions:
+    - telephony.contacts.read    (args: {"contact_id": str})
+    - telephony.contacts.search  (args: {"query": str})
+    - telephony.contacts.create  (args: {"name": str, "number": str})
+    - telephony.contacts.update  (args: {"contact_id": str, "name": str, "number": str})
+    - telephony.contacts.delete  (args: {"contact_id": str})
+    """
+    pass
+
+
+class NotificationBridge(BaseBridge):
+    """
+    Bridge for notification management.
+    Sub-domain: notifications.
+
+    Action Namespace: notification.*
+
+    Actions:
+    - notification.read
+    - notification.dismiss  (args: {"notification_id": str})
+    - notification.clear
+    - notification.reply    (args: {"notification_id": str, "text": str})
+    """
+    pass

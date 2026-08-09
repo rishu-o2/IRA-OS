@@ -3,10 +3,12 @@ from core.events import EventBus
 from core.logging import LoggerFactory
 from core.runtime.interfaces import CapabilityRegistry as ToolCapabilityRegistry
 
-from .bridge.contracts import SystemBridge, NetworkBridge, LocationBridge
+from .bridge.contracts import SystemBridge, NetworkBridge, LocationBridge, CallBridge, SMSBridge, ContactsBridge, NotificationBridge
 from .bridge.system import MockSystemBridge
 from .bridge.network import MockNetworkBridge
 from .bridge.location import MockLocationBridge
+from .bridge.telephony import MockCallBridge, MockSMSBridge, MockContactsBridge
+from .bridge.notification import MockNotificationBridge
 from .contracts import AndroidRegistry, AndroidRuntime
 from .health import AndroidHealthTracker
 from .manager import AndroidRuntimeManager
@@ -46,7 +48,12 @@ class AndroidModule(Module):
         container.register_factory(AndroidHealthTracker, factory=build_health_tracker, lifetime=Lifetime.SINGLETON)
         container.register_factory(AndroidRuntime, factory=build_manager, lifetime=Lifetime.SINGLETON)
 
-        # Register Bridges
         container.register_singleton(SystemBridge, MockSystemBridge)
         container.register_singleton(NetworkBridge, MockNetworkBridge)
         container.register_singleton(LocationBridge, MockLocationBridge)
+
+        # Pack C: Communication bridges
+        container.register_singleton(CallBridge, MockCallBridge)
+        container.register_singleton(SMSBridge, MockSMSBridge)
+        container.register_singleton(ContactsBridge, MockContactsBridge)
+        container.register_singleton(NotificationBridge, MockNotificationBridge)
