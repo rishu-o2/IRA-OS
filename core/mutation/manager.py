@@ -1,9 +1,8 @@
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Mapping
+from typing import Any, Callable, Coroutine, Mapping
 
 from core.events import EventBus
-from core.execution.contracts import ProtectedDispatcher
 from core.execution.models import ExecutionCommand, ExecutionOutcome, ExecutionOutcomeStatus
 from core.logging import Logger
 from core.runtime.interfaces import CapabilityRegistry
@@ -32,7 +31,7 @@ class DefaultMutationManager(MutationManager):
     Responsibilities:
     1. Check capability metadata.
     2. Coordinate confirmation (if required).
-    3. Delegate execution to ProtectedDispatcher (provided by ExecutionService).
+    3. Invoke the execute_delegate supplied by ExecutionService (Security → Runtime → Capability).
     4. Coordinate audit persistence.
     5. Coordinate rollback (if execution fails or requires undo).
 
@@ -54,9 +53,16 @@ class DefaultMutationManager(MutationManager):
         self._event_bus = event_bus
         self._logger = logger
 
-    async def process_mutation(self, command: ExecutionCommand, dispatcher: ProtectedDispatcher) -> ExecutionOutcome:
+    async def process_mutation(
+        self,
+        command: ExecutionCommand,
+        execute_delegate: Callable[[ExecutionCommand], Coroutine[Any, Any, ExecutionOutcome]],
+    ) -> ExecutionOutcome:
         """
         Execute the full mutation lifecycle.
+        
+        execute_delegate: callable supplied by ExecutionService that performs
+        Security → Runtime → Capability. MutationManager never calls these directly.
         """
         mutation_id = str(uuid.uuid4())
         context = MutationContext(
@@ -127,7 +133,7 @@ class DefaultMutationManager(MutationManager):
             )
         )
 
-        outcome = await dispatcher.dispatch(command)
+        outcome = await execute_delegate(command)
 
         # 5. Handle Failure and Rollback
         if outcome.failed and mutation_meta.supports_rollback:

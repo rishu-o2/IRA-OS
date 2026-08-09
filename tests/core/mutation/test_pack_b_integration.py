@@ -111,7 +111,7 @@ async def execution_service(event_bus, logger, bridge):
     conf_mgr = ConfirmationManager(logger)
     conf_mgr.register_provider(AutoConfirmProvider())
 
-    mutation_manager = DefaultMutationManager(
+    execution_service = DefaultMutationManager(
         capability_registry=registry,
         confirmation_manager=conf_mgr,
         audit_manager=audit_mgr,
@@ -122,7 +122,7 @@ async def execution_service(event_bus, logger, bridge):
     return DefaultExecutionService(
         classifier=FakeClassifier(),
         protected_dispatcher=FakeProtectedDispatcher(),
-        mutation_manager=mutation_manager,
+        mutation_manager=execution_service,
         event_bus=event_bus,
         logger=logger,
     )
@@ -167,3 +167,6 @@ async def test_airplane_mode_rollback(execution_service, bridge):
     )
     assert bridge._state["wifi"]["enabled"] is True
     assert bridge._state["airplane_mode"]["enabled"] is False
+
+
+

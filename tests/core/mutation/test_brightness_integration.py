@@ -3,7 +3,7 @@ End-to-end pipeline integration tests for BrightnessCapability (Milestone 16.4).
 
 Exercises the full stack:
     Workflow -> ExecutionCommand
-    -> MutationManager.process_mutation()
+    -> ExecutionService.execute()
     -> FakeExecutionService (stands in for DefaultExecutionService)
     -> DefaultAndroidAdapter.execute()
     -> BrightnessCapability._execute_internal()
@@ -87,7 +87,7 @@ def brightness_adapter(bridge: MockSystemBridge) -> DefaultAndroidAdapter:
 
 
 @pytest.fixture
-def execution_service(brightness_adapter: DefaultAndroidAdapter, event_bus):
+def base_execution_service(brightness_adapter: DefaultAndroidAdapter, event_bus):
     """
     FakeProtectedDispatcher wires into DefaultExecutionService (Milestone 16.1.5).
     The ExecutionClassifier classifies android.device.brightness as MUTATION.
@@ -120,13 +120,13 @@ def execution_service(brightness_adapter: DefaultAndroidAdapter, event_bus):
 
 
 @pytest.fixture
-async def mutation_manager(
+async def execution_service(
     event_bus: EventBus,
     logger,
-    execution_service,
+    base_execution_service,
     brightness_adapter: DefaultAndroidAdapter,
 ):
-    protected_dispatcher, classifier, _ = execution_service
+    protected_dispatcher, classifier, _ = base_execution_service
     registry = InMemoryCapabilityRegistry(event_bus)
     await registry.register(brightness_adapter)
 
@@ -164,11 +164,11 @@ def make_cmd(action: str, **kwargs) -> ExecutionCommand:
 # ── Success paths ──────────────────────────────────────────────────────────────
 
 @pytest.mark.anyio
-async def test_brightness_set_full_pipeline(mutation_manager, bridge):
+async def test_brightness_set_full_pipeline(execution_service, bridge):
     """brightness.set flows end-to-end through MutationManager and updates the bridge."""
     bridge._brightness_level = 50
 
-    outcome = await mutation_manager.execute(make_cmd("system.brightness.set", value=80))
+    outcome = await execution_service.execute(make_cmd("system.brightness.set", value=80))
 
     assert outcome.succeeded is True
     assert bridge._brightness_level == 80
@@ -176,52 +176,52 @@ async def test_brightness_set_full_pipeline(mutation_manager, bridge):
 
 
 @pytest.mark.anyio
-async def test_brightness_increase_full_pipeline(mutation_manager, bridge):
+async def test_brightness_increase_full_pipeline(execution_service, bridge):
     bridge._brightness_level = 50
 
-    outcome = await mutation_manager.execute(make_cmd("system.brightness.increase"))
+    outcome = await execution_service.execute(make_cmd("system.brightness.increase"))
 
     assert outcome.succeeded is True
     assert bridge._brightness_level == 60
 
 
 @pytest.mark.anyio
-async def test_brightness_decrease_full_pipeline(mutation_manager, bridge):
+async def test_brightness_decrease_full_pipeline(execution_service, bridge):
     bridge._brightness_level = 50
 
-    outcome = await mutation_manager.execute(make_cmd("system.brightness.decrease"))
+    outcome = await execution_service.execute(make_cmd("system.brightness.decrease"))
 
     assert outcome.succeeded is True
     assert bridge._brightness_level == 40
 
 
 @pytest.mark.anyio
-async def test_brightness_auto_on_full_pipeline(mutation_manager, bridge):
+async def test_brightness_auto_on_full_pipeline(execution_service, bridge):
     bridge._brightness_auto = False
 
-    outcome = await mutation_manager.execute(make_cmd("system.brightness.auto_on"))
+    outcome = await execution_service.execute(make_cmd("system.brightness.auto_on"))
 
     assert outcome.succeeded is True
     assert bridge._brightness_auto is True
 
 
 @pytest.mark.anyio
-async def test_brightness_auto_off_full_pipeline(mutation_manager, bridge):
+async def test_brightness_auto_off_full_pipeline(execution_service, bridge):
     bridge._brightness_auto = True
 
-    outcome = await mutation_manager.execute(make_cmd("system.brightness.auto_off"))
+    outcome = await execution_service.execute(make_cmd("system.brightness.auto_off"))
 
     assert outcome.succeeded is True
     assert bridge._brightness_auto is False
 
 
 @pytest.mark.anyio
-async def test_brightness_get_full_pipeline(mutation_manager, bridge):
+async def test_brightness_get_full_pipeline(execution_service, bridge):
     """brightness.get is read-only — still flows through pipeline cleanly."""
     bridge._brightness_level = 42
     bridge._brightness_auto = False
 
-    outcome = await mutation_manager.execute(make_cmd("system.brightness.get"))
+    outcome = await execution_service.execute(make_cmd("system.brightness.get"))
 
     assert outcome.succeeded is True
     assert outcome.result_data.data["level"] == 42
@@ -231,13 +231,13 @@ async def test_brightness_get_full_pipeline(mutation_manager, bridge):
 # ── Mutation lifecycle events ──────────────────────────────────────────────────
 
 @pytest.mark.anyio
-async def test_full_mutation_event_lifecycle(mutation_manager, bridge, event_bus):
+async def test_full_mutation_event_lifecycle(execution_service, bridge, event_bus):
     """All required mutation lifecycle events are emitted in correct order."""
     from core.events import Event
     emitted = []
     event_bus.subscribe(Event, lambda e: emitted.append(type(e)))
 
-    await mutation_manager.execute(make_cmd("system.brightness.set", value=70))
+    await execution_service.execute(make_cmd("system.brightness.set", value=70))
 
     event_names = [cls.__name__ for cls in emitted]
     assert "MutationRequested" in event_names
@@ -247,12 +247,12 @@ async def test_full_mutation_event_lifecycle(mutation_manager, bridge, event_bus
 
 
 @pytest.mark.anyio
-async def test_audit_is_recorded_on_success(mutation_manager, bridge, event_bus):
+async def test_audit_is_recorded_on_success(execution_service, bridge, event_bus):
     """AuditRecorded event is emitted after every successful mutation."""
     audit_events = []
     event_bus.subscribe(AuditRecorded, lambda e: audit_events.append(e))
 
-    await mutation_manager.execute(make_cmd("system.brightness.set", value=60))
+    await execution_service.execute(make_cmd("system.brightness.set", value=60))
 
     assert len(audit_events) == 1
     record = audit_events[0].audit_record
@@ -262,7 +262,7 @@ async def test_audit_is_recorded_on_success(mutation_manager, bridge, event_bus)
 # ── Failure + rollback ─────────────────────────────────────────────────────────
 
 @pytest.mark.anyio
-async def test_brightness_set_failure_triggers_rollback(mutation_manager, bridge, event_bus):
+async def test_brightness_set_failure_triggers_rollback(execution_service, bridge, event_bus):
     """
     When brightness.set raises a bridge error, outcome is FAILED and rollback
     is invoked, emitting MutationRolledBack.
@@ -280,7 +280,7 @@ async def test_brightness_set_failure_triggers_rollback(mutation_manager, bridge
     rollback_events = []
     event_bus.subscribe(MutationRolledBack, lambda e: rollback_events.append(e))
 
-    outcome = await mutation_manager.execute(
+    outcome = await execution_service.execute(
         make_cmd("system.brightness.set", value=80)
     )
 
@@ -291,7 +291,7 @@ async def test_brightness_set_failure_triggers_rollback(mutation_manager, bridge
 
 
 @pytest.mark.anyio
-async def test_brightness_increase_failure_triggers_rollback(mutation_manager, bridge, event_bus):
+async def test_brightness_increase_failure_triggers_rollback(execution_service, bridge, event_bus):
     """brightness.increase failure -> rollback -> MutationRolledBack emitted."""
     bridge._brightness_level = 50
     original_execute = bridge.execute
@@ -306,14 +306,14 @@ async def test_brightness_increase_failure_triggers_rollback(mutation_manager, b
     rollback_events = []
     event_bus.subscribe(MutationRolledBack, lambda e: rollback_events.append(e))
 
-    outcome = await mutation_manager.execute(make_cmd("system.brightness.increase"))
+    outcome = await execution_service.execute(make_cmd("system.brightness.increase"))
 
     assert outcome.failed is True
     assert len(rollback_events) == 1
 
 
 @pytest.mark.anyio
-async def test_brightness_auto_on_failure_triggers_rollback(mutation_manager, bridge, event_bus):
+async def test_brightness_auto_on_failure_triggers_rollback(execution_service, bridge, event_bus):
     """brightness.auto_on failure -> rollback -> MutationRolledBack emitted."""
     bridge._brightness_auto = False
     original_execute = bridge.execute
@@ -328,7 +328,7 @@ async def test_brightness_auto_on_failure_triggers_rollback(mutation_manager, br
     rollback_events = []
     event_bus.subscribe(MutationRolledBack, lambda e: rollback_events.append(e))
 
-    outcome = await mutation_manager.execute(make_cmd("system.brightness.auto_on"))
+    outcome = await execution_service.execute(make_cmd("system.brightness.auto_on"))
 
     assert outcome.failed is True
     assert len(rollback_events) == 1
@@ -337,11 +337,11 @@ async def test_brightness_auto_on_failure_triggers_rollback(mutation_manager, br
 # ── Pre-state propagation through pipeline ─────────────────────────────────────
 
 @pytest.mark.anyio
-async def test_pre_state_present_in_pipeline_result(mutation_manager, bridge):
+async def test_pre_state_present_in_pipeline_result(execution_service, bridge):
     """pre_state must survive the full pipeline and be accessible in outcome.result_data."""
     bridge._brightness_level = 50
 
-    outcome = await mutation_manager.execute(
+    outcome = await execution_service.execute(
         make_cmd("system.brightness.set", value=80)
     )
 
@@ -362,3 +362,6 @@ def test_adapter_mutation_metadata(brightness_adapter: DefaultAndroidAdapter):
 
 def test_adapter_capability_id(brightness_adapter: DefaultAndroidAdapter):
     assert brightness_adapter.metadata.id == "android.device.brightness"
+
+
+

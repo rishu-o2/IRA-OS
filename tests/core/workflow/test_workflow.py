@@ -77,10 +77,12 @@ async def build_container() -> Container:
     # Install kernel subsystems required by WorkflowExecutor -> ExecutionService
     from core.security.security_module import SecurityModule
     from core.runtime.runtime_module import RuntimeModule
+    from core.mutation.mutation_module import MutationModule
     from core.execution.execution_module import ExecutionModule
 
     container.install(SecurityModule())
     container.install(RuntimeModule())
+    container.install(MutationModule())
     container.install(ExecutionModule())
     container.install(WorkflowModule())
     return container

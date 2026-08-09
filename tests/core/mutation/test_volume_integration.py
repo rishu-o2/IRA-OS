@@ -1,22 +1,3 @@
-"""
-End-to-end pipeline integration tests for VolumeCapability (Milestone 16.3).
-
-Exercises the full stack:
-    Workflow → ExecutionCommand
-    → MutationManager.process_mutation()
-    → FakeExecutionService (stands in for DefaultExecutionService)
-    → DefaultAndroidAdapter.execute()
-    → VolumeCapability._execute_internal()
-    → MockSystemBridge
-
-Tests:
-    - Success: volume.set flows end-to-end and updates bridge state
-    - Success: volume.up increments bridge state
-    - Success: volume.mute mutes bridge state
-    - Failure + rollback: bridge error → outcome.failed → rollback → MutationRolledBack emitted
-    - Audit: AuditRecorded emitted on success
-    - Mutation lifecycle: all expected events emitted in order
-"""
 import pytest
 
 from core.events import EventBus
@@ -82,7 +63,7 @@ def volume_adapter(bridge: MockSystemBridge) -> DefaultAndroidAdapter:
 
 
 @pytest.fixture
-def execution_service(volume_adapter: DefaultAndroidAdapter, event_bus):
+def base_execution_service(volume_adapter: DefaultAndroidAdapter, event_bus):
     class FakeProtectedDispatcher(ProtectedDispatcher):
         async def dispatch(self, command: ExecutionCommand) -> ExecutionOutcome:
             try:
@@ -111,13 +92,13 @@ def execution_service(volume_adapter: DefaultAndroidAdapter, event_bus):
 
 
 @pytest.fixture
-async def mutation_manager(
+async def execution_service(
     event_bus: EventBus,
     logger,
-    execution_service,
+    base_execution_service,
     volume_adapter: DefaultAndroidAdapter,
 ):
-    protected_dispatcher, classifier, _ = execution_service
+    protected_dispatcher, classifier, _ = base_execution_service
     registry = InMemoryCapabilityRegistry(event_bus)
     await registry.register(volume_adapter)
 
@@ -155,11 +136,11 @@ def make_cmd(action: str, **kwargs) -> ExecutionCommand:
 # ── Success paths ──────────────────────────────────────────────────────────────
 
 @pytest.mark.anyio
-async def test_volume_set_full_pipeline(mutation_manager, bridge):
+async def test_volume_set_full_pipeline(execution_service, bridge):
     """volume.set flows end-to-end through MutationManager and updates the bridge."""
     bridge._volume_level = 50
 
-    outcome = await mutation_manager.process_mutation(make_cmd("system.volume.set", value=80))
+    outcome = await execution_service.execute(make_cmd("system.volume.set", value=80))
 
     assert outcome.succeeded is True
     assert bridge._volume_level == 80
@@ -167,52 +148,52 @@ async def test_volume_set_full_pipeline(mutation_manager, bridge):
 
 
 @pytest.mark.anyio
-async def test_volume_up_full_pipeline(mutation_manager, bridge):
+async def test_volume_up_full_pipeline(execution_service, bridge):
     bridge._volume_level = 50
 
-    outcome = await mutation_manager.process_mutation(make_cmd("system.volume.up"))
+    outcome = await execution_service.execute(make_cmd("system.volume.up"))
 
     assert outcome.succeeded is True
     assert bridge._volume_level == 60
 
 
 @pytest.mark.anyio
-async def test_volume_down_full_pipeline(mutation_manager, bridge):
+async def test_volume_down_full_pipeline(execution_service, bridge):
     bridge._volume_level = 50
 
-    outcome = await mutation_manager.process_mutation(make_cmd("system.volume.down"))
+    outcome = await execution_service.execute(make_cmd("system.volume.down"))
 
     assert outcome.succeeded is True
     assert bridge._volume_level == 40
 
 
 @pytest.mark.anyio
-async def test_volume_mute_full_pipeline(mutation_manager, bridge):
+async def test_volume_mute_full_pipeline(execution_service, bridge):
     bridge._volume_muted = False
 
-    outcome = await mutation_manager.process_mutation(make_cmd("system.volume.mute"))
+    outcome = await execution_service.execute(make_cmd("system.volume.mute"))
 
     assert outcome.succeeded is True
     assert bridge._volume_muted is True
 
 
 @pytest.mark.anyio
-async def test_volume_unmute_full_pipeline(mutation_manager, bridge):
+async def test_volume_unmute_full_pipeline(execution_service, bridge):
     bridge._volume_muted = True
 
-    outcome = await mutation_manager.process_mutation(make_cmd("system.volume.unmute"))
+    outcome = await execution_service.execute(make_cmd("system.volume.unmute"))
 
     assert outcome.succeeded is True
     assert bridge._volume_muted is False
 
 
 @pytest.mark.anyio
-async def test_volume_get_full_pipeline(mutation_manager, bridge):
+async def test_volume_get_full_pipeline(execution_service, bridge):
     """volume.get is a read-only action — still flows through pipeline cleanly."""
     bridge._volume_level = 42
     bridge._volume_muted = True
 
-    outcome = await mutation_manager.process_mutation(make_cmd("system.volume.get"))
+    outcome = await execution_service.execute(make_cmd("system.volume.get"))
 
     assert outcome.succeeded is True
     assert outcome.result_data.data["level"] == 42
@@ -222,13 +203,13 @@ async def test_volume_get_full_pipeline(mutation_manager, bridge):
 # ── Mutation lifecycle events ──────────────────────────────────────────────────
 
 @pytest.mark.anyio
-async def test_full_mutation_event_lifecycle(mutation_manager, bridge, event_bus):
+async def test_full_mutation_event_lifecycle(execution_service, bridge, event_bus):
     """All required mutation events are emitted in correct order."""
     from core.events import Event
     emitted = []
     event_bus.subscribe(Event, lambda e: emitted.append(type(e)))
 
-    await mutation_manager.process_mutation(make_cmd("system.volume.set", value=70))
+    await execution_service.execute(make_cmd("system.volume.set", value=70))
 
     event_names = [cls.__name__ for cls in emitted]
     assert "MutationRequested" in event_names
@@ -240,11 +221,8 @@ async def test_full_mutation_event_lifecycle(mutation_manager, bridge, event_bus
 # ── Failure + rollback ─────────────────────────────────────────────────────────
 
 @pytest.mark.anyio
-async def test_volume_set_failure_triggers_rollback(mutation_manager, bridge, event_bus):
-    """
-    When volume.set raises a bridge error, the outcome is FAILED and
-    rollback is invoked, emitting MutationRolledBack.
-    """
+async def test_volume_set_failure_triggers_rollback(execution_service, bridge, event_bus):
+   
     bridge._volume_level = 50
     original_execute = bridge.execute
 
@@ -258,7 +236,7 @@ async def test_volume_set_failure_triggers_rollback(mutation_manager, bridge, ev
     rollback_events = []
     event_bus.subscribe(MutationRolledBack, lambda e: rollback_events.append(e))
 
-    outcome = await mutation_manager.process_mutation(
+    outcome = await execution_service.execute(
         make_cmd("system.volume.set", value=80)
     )
 
@@ -269,7 +247,7 @@ async def test_volume_set_failure_triggers_rollback(mutation_manager, bridge, ev
 
 
 @pytest.mark.anyio
-async def test_volume_up_failure_triggers_rollback(mutation_manager, bridge, event_bus):
+async def test_volume_up_failure_triggers_rollback(execution_service, bridge, event_bus):
     """volume.up failure → rollback → MutationRolledBack emitted."""
     bridge._volume_level = 50
     original_execute = bridge.execute
@@ -284,7 +262,10 @@ async def test_volume_up_failure_triggers_rollback(mutation_manager, bridge, eve
     rollback_events = []
     event_bus.subscribe(MutationRolledBack, lambda e: rollback_events.append(e))
 
-    outcome = await mutation_manager.process_mutation(make_cmd("system.volume.up"))
+    outcome = await execution_service.execute(make_cmd("system.volume.up"))
 
     assert outcome.failed is True
     assert len(rollback_events) == 1
+
+
+

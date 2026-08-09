@@ -5,7 +5,7 @@ from core.runtime.interfaces import CapabilityRegistry
 
 from .audit import AuditManager, InMemoryAuditSink
 from .confirmation import ConfirmationManager
-from .contracts import MutationManager
+from .contracts import ConfirmationProvider, MutationManager
 from .manager import DefaultMutationManager
 
 

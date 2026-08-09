@@ -1,28 +1,40 @@
 from abc import ABC, abstractmethod
-from typing import Any, Mapping
+from typing import Any, Callable, Coroutine, Mapping
 
 from core.execution.models import ExecutionCommand, ExecutionOutcome
 from core.runtime.interfaces import Capability
 from .models import AuditRecord, ConfirmationLevel, MutationContext, MutationState
 
 
-from core.execution.contracts import ProtectedDispatcher
-
 class MutationManager(ABC):
     """
-    Coordinates the mutation lifecycle.
-    
-    The MutationManager does NOT execute capabilities directly. It orchestrates
-    the mutation lifecycle:
-    Confirmation -> Protected Dispatch -> Audit -> Rollback (if failed).
+    Internal infrastructure abstraction for mutation lifecycle orchestration.
+
+    This is NOT a public execution entry point.
+    External callers MUST use ExecutionService.execute().
+
+    MutationManager exists solely as a DI registration key and internal
+    typing boundary. It coordinates the mutation lifecycle:
+        Confirmation → Protected Execution → Audit → Rollback (if failed).
+
+    The protected execution delegate is supplied at call-time by ExecutionService,
+    keeping MutationManager platform-agnostic and free of Runtime dependencies.
     """
 
     @abstractmethod
-    async def process_mutation(self, command: ExecutionCommand, dispatcher: ProtectedDispatcher) -> ExecutionOutcome:
+    async def process_mutation(
+        self,
+        command: ExecutionCommand,
+        execute_delegate: Callable[[ExecutionCommand], Coroutine[Any, Any, ExecutionOutcome]],
+    ) -> ExecutionOutcome:
         """
-        Process a mutation command through the full lifecycle.
+        Coordinate the full mutation lifecycle for the given command.
+
+        execute_delegate: supplied by ExecutionService, performs Security → Runtime → Capability.
+        MutationManager must NEVER call Runtime, Security, or Android directly.
         """
         pass
+
 
 
 class ConfirmationProvider(ABC):

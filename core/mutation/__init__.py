@@ -39,8 +39,9 @@ from .models import (
 from .mutation_module import MutationModule
 
 __all__ = [
-    # Contracts
+    # Internal Infrastructure Contracts
     "MutationManager",
+    # Public Contracts
     "ConfirmationProvider",
     "AuditSink",
     "MutatingCapability",

@@ -34,7 +34,7 @@ from core.execution.exceptions import (
     ExecutionValidationError,
 )
 from core.execution.models import ExecutionCommand, ExecutionOutcome, ExecutionOutcomeStatus
-from core.execution.service import DefaultExecutionService
+from core.execution.service import DefaultExecutionService, DefaultProtectedDispatcher
 from core.execution.execution_module import ExecutionModule
 
 
@@ -423,3 +423,153 @@ def test_execution_service_is_the_only_permitted_entry_point():
     # MutationManager must NOT be in execution.contracts (it's an internal concern)
     assert not hasattr(contracts_mod, "MutationManager"), \
         "MutationManager must not be part of the Execution public contract surface."
+
+
+# ──────────────────────────────────────────────────────────
+# 12. Architecture Invariant Tests — Security / Bypass / Dependency (Milestone 16.1.5)
+# ──────────────────────────────────────────────────────────
+
+@pytest.mark.anyio
+async def test_security_invariant_read_path_passes_through_security():
+    """Test C: Read-only commands must pass through Security (ProtectedDispatcher)."""
+    svc, bus, mutation_manager = _build_service(is_mutation=False, granted=True)
+    from core.execution.events import ExecutionAuthorized
+    received = []
+    bus.subscribe(ExecutionAuthorized, lambda e: received.append(e))
+
+    cmd = ExecutionCommand(command_id="cmd-read-sec", capability_id="test.cap")
+    outcome = await svc.execute(cmd)
+
+    # Security was exercised — ExecutionAuthorized event must be emitted
+    assert len(received) == 1, "Read-only path must emit ExecutionAuthorized (security ran)"
+    assert outcome.succeeded
+    mutation_manager.process_mutation.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_security_invariant_mutation_path_passes_through_security():
+    """Test C (mutation side): Mutation commands go through MutationManager, which calls the delegate, which calls Security."""
+    # We verify that MutationManager is called (it will use the delegate that wraps Security)
+    svc, bus, mutation_manager = _build_service(is_mutation=True)
+    mutation_manager.process_mutation.return_value = ExecutionOutcome(
+        command_id="cmd-m", capability_id="test.cap",
+        status=ExecutionOutcomeStatus.SUCCEEDED, result_data="ok"
+    )
+    cmd = ExecutionCommand(command_id="cmd-m", capability_id="test.cap")
+    outcome = await svc.execute(cmd)
+
+    mutation_manager.process_mutation.assert_called_once()
+    # Verify the delegate (second arg) is a callable — not a ProtectedDispatcher object
+    call_args = mutation_manager.process_mutation.call_args
+    assert callable(call_args[0][1] if call_args[0] else call_args[1].get("execute_delegate")), \
+        "MutationManager must receive a callable delegate, not the ProtectedDispatcher directly."
+    assert outcome.succeeded
+
+
+def test_mutation_bypass_prevention():
+    """Test D: The MutationManager contract must NOT be accessible from ExecutionService's public interface."""
+    import core.execution.contracts as contracts_mod
+    import core.mutation.contracts as mutation_contracts_mod
+
+    # ExecutionService must be the ONLY public entry point in the execution contracts
+    assert hasattr(contracts_mod, "ExecutionService")
+    # MutationManager must NOT leak into execution contracts
+    assert not hasattr(contracts_mod, "MutationManager"), \
+        "MutationManager must not appear in core.execution.contracts"
+
+    # MutationManager must be in mutation contracts (internal boundary)
+    assert hasattr(mutation_contracts_mod, "MutationManager"), \
+        "MutationManager must be declared in core.mutation.contracts as an internal ABC"
+
+
+def test_dependency_direction_mutation_manager_does_not_import_execution_service():
+    """Test E: MutationManager must not import or depend on ExecutionService."""
+    import core.mutation.manager as mgr_mod
+    import core.mutation.contracts as contracts_mod
+
+    with open(mgr_mod.__file__, encoding="utf-8") as f:
+        mgr_src = f.read()
+    with open(contracts_mod.__file__, encoding="utf-8") as f:
+        contracts_src = f.read()
+
+    # Check only import statements, not docstring mentions
+    mgr_imports = [line.strip() for line in mgr_src.splitlines() if line.strip().startswith(("import ", "from "))]
+    contracts_imports = [line.strip() for line in contracts_src.splitlines() if line.strip().startswith(("import ", "from "))]
+
+    forbidden_in_imports = ["core.execution.service", "core.execution.execution_module", "DefaultExecutionService"]
+    for forb in forbidden_in_imports:
+        for imp_line in mgr_imports:
+            assert forb not in imp_line, \
+                f"core.mutation.manager must not import '{forb}' (dependency inversion violation): {imp_line}"
+        for imp_line in contracts_imports:
+            assert forb not in imp_line, \
+                f"core.mutation.contracts must not import '{forb}': {imp_line}"
+
+    # Verify allowed: models only from core.execution
+    allowed_execution_imports = {"from core.execution.models", "from core.execution.contracts"}
+    for imp_line in mgr_imports:
+        if "core.execution" in imp_line:
+            assert any(imp_line.startswith(ok) for ok in allowed_execution_imports), \
+                f"core.mutation.manager has unexpected execution import: {imp_line}"
+
+
+
+@pytest.mark.anyio
+async def test_di_construction_no_circular_dependency():
+    """Test F: The complete execution graph can be constructed without circular dependencies."""
+    from core.container import Container, ContainerProtocol
+    from core.events import EventBus
+    from core.logging import LoggerFactory
+    from core.logging.sinks import NullSink
+    from core.security.security_module import SecurityModule
+    from core.runtime.runtime_module import RuntimeModule
+    from core.mutation.mutation_module import MutationModule
+    from core.execution.execution_module import ExecutionModule
+
+    container = Container()
+    event_bus = EventBus()
+    logger_factory = LoggerFactory(sinks=[NullSink()])
+
+    container.register_instance(ContainerProtocol, container)
+    container.register_instance(EventBus, event_bus)
+    container.register_instance(LoggerFactory, logger_factory)
+
+    container.install(SecurityModule())
+    container.install(RuntimeModule())
+    container.install(MutationModule())  # Must come before ExecutionModule
+    container.install(ExecutionModule())
+
+    # Must resolve without ResolutionError or circular dependency
+    execution_service = await container.resolve(ExecutionService)
+    assert execution_service is not None, "ExecutionService must be constructable from DI"
+    assert isinstance(execution_service, ExecutionService)
+
+
+@pytest.mark.anyio
+async def test_existing_capabilities_pass_through_hardened_pipeline():
+    """Test G: Flashlight, Volume, Brightness, Pack A, Pack B all route through hardened service."""
+    # Verified by the integration tests in tests/core/mutation/.
+    # This test asserts the structural invariant: ExecutionService.execute() is the entry point.
+    svc, _, mutation_manager = _build_service(is_mutation=True)
+    mutation_manager.process_mutation.return_value = ExecutionOutcome(
+        command_id="cmd-g", capability_id="android.device.volume",
+        status=ExecutionOutcomeStatus.SUCCEEDED, result_data="ok"
+    )
+    capability_ids = [
+        "android.device.volume",
+        "android.hardware.flashlight",
+        "android.device.brightness",
+        "android.device.vibrate",
+        "android.device.airplane_mode",
+    ]
+    for cap_id in capability_ids:
+        mutation_manager.process_mutation.reset_mock()
+        mutation_manager.process_mutation.return_value = ExecutionOutcome(
+            command_id=f"cmd-{cap_id}", capability_id=cap_id,
+            status=ExecutionOutcomeStatus.SUCCEEDED, result_data="ok"
+        )
+        cmd = ExecutionCommand(command_id=f"cmd-{cap_id}", capability_id=cap_id)
+        # All capabilities classified as MUTATION route through MutationManager
+        outcome = await svc.execute(cmd)
+        mutation_manager.process_mutation.assert_called_once(), \
+            f"{cap_id} must route through MutationManager when classified as MUTATION"

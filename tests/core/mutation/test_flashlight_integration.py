@@ -52,9 +52,10 @@ def registry(event_bus, flashlight_adapter):
     return reg
 
 @pytest.fixture
-def execution_service(flashlight_adapter):
-    class FakeExecutionService:
-        async def execute(self, command: ExecutionCommand) -> ExecutionOutcome:
+def base_execution_service(flashlight_adapter, event_bus):
+    from core.execution.contracts import ProtectedDispatcher, ExecutionClassifier, ExecutionType
+    class FakeProtectedDispatcher(ProtectedDispatcher):
+        async def dispatch(self, command: ExecutionCommand) -> ExecutionOutcome:
             try:
                 from core.runtime.models import ExecutionContext, ExecutionRequest
                 req = ExecutionRequest(
@@ -65,33 +66,29 @@ def execution_service(flashlight_adapter):
                 )
                 ctx = ExecutionContext(request=req, capability_metadata=flashlight_adapter.metadata)
                 result = await flashlight_adapter.execute(ctx)
-                
-                # Check for CapabilityResult wrapper
-                if hasattr(result, "success") and not result.success:
+                if hasattr(result, 'success') and not result.success:
                     return ExecutionOutcome(
-                        command_id=command.command_id,
-                        capability_id=command.capability_id,
-                        status=ExecutionOutcomeStatus.FAILED,
-                        error=getattr(result, "error_message", "Unknown capability error")
+                        command_id=command.command_id, capability_id=command.capability_id,
+                        status=ExecutionOutcomeStatus.FAILED, error=getattr(result, 'error_message', 'Unknown error')
                     )
-                    
                 return ExecutionOutcome(
-                    command_id=command.command_id,
-                    capability_id=command.capability_id,
-                    status=ExecutionOutcomeStatus.SUCCEEDED,
-                    result_data=result
+                    command_id=command.command_id, capability_id=command.capability_id,
+                    status=ExecutionOutcomeStatus.SUCCEEDED, result_data=result
                 )
             except Exception as e:
                 return ExecutionOutcome(
-                    command_id=command.command_id,
-                    capability_id=command.capability_id,
-                    status=ExecutionOutcomeStatus.FAILED,
-                    error=str(e)
+                    command_id=command.command_id, capability_id=command.capability_id,
+                    status=ExecutionOutcomeStatus.FAILED, error=str(e)
                 )
-    return FakeExecutionService()
+
+    class AllMutationClassifier(ExecutionClassifier):
+        def classify(self, command): return ExecutionType.MUTATION
+
+    return FakeProtectedDispatcher(), AllMutationClassifier(), event_bus
+
 
 @pytest.fixture
-async def mutation_manager(event_bus, logger, registry, execution_service, flashlight_adapter):
+async def execution_service(event_bus, logger, registry, base_execution_service, flashlight_adapter):
     await registry.register(flashlight_adapter)
     
     audit_mgr = AuditManager(logger)
@@ -100,30 +97,38 @@ async def mutation_manager(event_bus, logger, registry, execution_service, flash
     conf_mgr = ConfirmationManager(logger)
     conf_mgr.register_provider(AutoConfirmProvider())
     
-    return DefaultMutationManager(
-        execution_service=execution_service,
+    mgr = DefaultMutationManager(
         capability_registry=registry,
         confirmation_manager=conf_mgr,
         audit_manager=audit_mgr,
         event_bus=event_bus,
         logger=logger,
     )
+    protected_dispatcher, classifier, _ = base_execution_service
+    from core.execution.service import DefaultExecutionService
+    return DefaultExecutionService(
+        classifier=classifier,
+        protected_dispatcher=protected_dispatcher,
+        mutation_manager=mgr,
+        event_bus=event_bus,
+        logger=logger,
+    )
 
 @pytest.mark.anyio
-async def test_flashlight_integration_success(mutation_manager, mock_bridge):
+async def test_flashlight_integration_success(execution_service, mock_bridge):
     cmd = ExecutionCommand(
         command_id="cmd-1",
         capability_id="android.hardware.flashlight",
         arguments={"action": "system.flashlight.on"}
     )
-    outcome = await mutation_manager.process_mutation(cmd)
+    outcome = await execution_service.execute(cmd)
     
     assert outcome.succeeded is True
     assert outcome.result_data.data["enabled"] is True
     assert mock_bridge._flashlight_on is True
 
 @pytest.mark.anyio
-async def test_flashlight_integration_failure_and_rollback(mutation_manager, mock_bridge, execution_service, event_bus):
+async def test_flashlight_integration_failure_and_rollback(execution_service, mock_bridge, event_bus):
     original_execute = mock_bridge.execute
     
     async def failing_execute(action, arguments=None):
@@ -143,9 +148,12 @@ async def test_flashlight_integration_failure_and_rollback(mutation_manager, moc
         arguments={"action": "system.flashlight.on"}
     )
     
-    outcome = await mutation_manager.process_mutation(cmd)
+    outcome = await execution_service.execute(cmd)
     
     assert outcome.failed is True
     assert "Bridge error" in outcome.error
     assert mock_bridge._flashlight_on is False
     assert len(events) == 1
+
+
+

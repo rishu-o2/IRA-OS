@@ -224,7 +224,10 @@ class DefaultExecutionService(ExecutionService):
             if not self._mutation_manager:
                 raise ExecutionRuntimeError("MutationManager is required for MUTATION execution.")
             self._logger.info("Routing command to MutationManager.", command_id=command.command_id)
-            return await self._mutation_manager.process_mutation(command, self._protected_dispatcher)
+            # Supply a delegate so MutationManager never holds a reference to the dispatcher
+            async def protected_execute(cmd: ExecutionCommand) -> ExecutionOutcome:
+                return await self._protected_dispatcher.dispatch(cmd)
+            return await self._mutation_manager.process_mutation(command, protected_execute)
         else:
             self._logger.info("Routing command to ProtectedDispatcher.", command_id=command.command_id)
             return await self._protected_dispatcher.dispatch(command)

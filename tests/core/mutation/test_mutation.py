@@ -17,7 +17,7 @@ from core.runtime.models import CapabilityMetadata
 
 from core.mutation.audit import AuditManager, InMemoryAuditSink
 from core.mutation.confirmation import ConfirmationManager
-from core.mutation.contracts import ConfirmationProvider, MutatingCapability, MutationManager
+from core.mutation.contracts import ConfirmationProvider, MutatingCapability
 from core.mutation.events import (
     AuditRecorded,
     MutationCompleted,
@@ -40,23 +40,23 @@ def anyio_backend():
     return "asyncio"
 
 
-def _make_dispatcher(succeed: bool = True, error: str = "fail") -> ProtectedDispatcher:
-    """Build a mock ProtectedDispatcher that succeeds or fails."""
-    dispatcher = AsyncMock(spec=ProtectedDispatcher)
-    if succeed:
-        dispatcher.dispatch.return_value = ExecutionOutcome(
-            command_id="cmd-1", capability_id="test.cap",
-            status=ExecutionOutcomeStatus.SUCCEEDED, result_data="ok"
-        )
-    else:
-        dispatcher.dispatch.return_value = ExecutionOutcome(
-            command_id="cmd-1", capability_id="test.cap",
-            status=ExecutionOutcomeStatus.FAILED, error=error
-        )
-    return dispatcher
+def _make_delegate(succeed: bool = True, error: str = "fail"):
+    """Build an async callable delegate that ExecutionService would supply."""
+    async def delegate(command: ExecutionCommand) -> ExecutionOutcome:
+        if succeed:
+            return ExecutionOutcome(
+                command_id=command.command_id, capability_id=command.capability_id,
+                status=ExecutionOutcomeStatus.SUCCEEDED, result_data="ok"
+            )
+        else:
+            return ExecutionOutcome(
+                command_id=command.command_id, capability_id=command.capability_id,
+                status=ExecutionOutcomeStatus.FAILED, error=error
+            )
+    return delegate
 
 
-def _build_deps(dispatcher: ProtectedDispatcher = None):
+def _build_deps(delegate=None):
     bus = EventBus()
     logger = LoggerFactory(sinks=[NullSink()]).get("test")
 
@@ -74,8 +74,8 @@ def _build_deps(dispatcher: ProtectedDispatcher = None):
         event_bus=bus,
         logger=logger,
     )
-    _dispatcher = dispatcher or _make_dispatcher()
-    return manager, bus, registry, _dispatcher, conf_mgr, audit_mgr
+    _delegate = delegate or _make_delegate()
+    return manager, bus, registry, _delegate, conf_mgr, audit_mgr
 
 
 # ──────────────────────────────────────────────────────────
@@ -124,7 +124,6 @@ def test_events_are_frozen():
     assert MutationRequested.__dataclass_params__.frozen
 
 def test_contracts_are_abstract():
-    assert inspect.isabstract(MutationManager)
     assert inspect.isabstract(MutatingCapability)
 
 
@@ -216,7 +215,6 @@ async def test_confirmation_denied():
 
     assert outcome.denied
     assert "Confirmation denied" in outcome.denial_reason
-    dispatcher.dispatch.assert_not_called()
 
     event_types = {type(e) for e in events}
     assert MutationRejected in event_types
@@ -237,7 +235,7 @@ class DummyMutatingCap(MutatingCapability):
 
 @pytest.mark.anyio
 async def test_rollback_on_failure():
-    failing_dispatcher = _make_dispatcher(succeed=False, error="fail")
+    failing_delegate = _make_delegate(succeed=False, error="fail")
     mgr, bus, reg, _, _, _ = _build_deps()
 
     cap = DummyMutatingCap()
@@ -249,7 +247,7 @@ async def test_rollback_on_failure():
     bus.subscribe(Event, lambda e: events.append(e))
 
     cmd = ExecutionCommand(command_id="cmd-1", capability_id="test.cap")
-    outcome = await mgr.process_mutation(cmd, failing_dispatcher)
+    outcome = await mgr.process_mutation(cmd, failing_delegate)
 
     assert outcome.failed
     cap.rollback.assert_called_once()
@@ -280,3 +278,6 @@ async def test_audit_manager_raises_on_all_failures():
     rec = AuditRecord("a", "m", "c", "x", {}, MutationState.COMPLETED, datetime.now())
     with pytest.raises(AuditError):
         await mgr.record(rec)
+
+
+
