@@ -57,3 +57,24 @@ class AndroidModule(Module):
         container.register_singleton(SMSBridge, MockSMSBridge)
         container.register_singleton(ContactsBridge, MockContactsBridge)
         container.register_singleton(NotificationBridge, MockNotificationBridge)
+
+        # Pack D: Device & Data Layer bridges
+        from .bridge.contracts import (
+            CameraBridge, MicrophoneBridge, FileBridge, MediaBridge, 
+            GalleryBridge, DownloadBridge, StorageBridge
+        )
+        from .bridge.camera import MockCameraBridge
+        from .bridge.microphone import MockMicrophoneBridge
+        from .bridge.files import MockFileBridge
+        from .bridge.media import MockMediaBridge
+        from .bridge.gallery import MockGalleryBridge
+        from .bridge.downloads import MockDownloadBridge
+        from .bridge.storage import MockStorageBridge
+
+        container.register_singleton(CameraBridge, MockCameraBridge)
+        container.register_singleton(MicrophoneBridge, MockMicrophoneBridge)
+        container.register_singleton(FileBridge, MockFileBridge)
+        container.register_singleton(MediaBridge, MockMediaBridge)
+        container.register_singleton(GalleryBridge, MockGalleryBridge)
+        container.register_singleton(DownloadBridge, MockDownloadBridge)
+        container.register_singleton(StorageBridge, MockStorageBridge)

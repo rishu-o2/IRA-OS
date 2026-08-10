@@ -1,24 +1,24 @@
 from typing import Any, Mapping
-from core.android.bridge.contracts import CameraBridge
+from core.android.bridge.contracts import MicrophoneBridge
 from core.android.capabilities.base import BaseAndroidCapability
 from core.android.models import (
     CapabilityCategory, CapabilityDescriptor, ConfirmationLevel, SecurityLevel,
 )
 
-class CameraReadCapability(BaseAndroidCapability):
-    def __init__(self, bridge: CameraBridge) -> None:
+class MicrophoneReadCapability(BaseAndroidCapability):
+    def __init__(self, bridge: MicrophoneBridge) -> None:
         self._bridge = bridge
 
     @property
     def descriptor(self) -> CapabilityDescriptor:
         return CapabilityDescriptor(
-            id="android.device.camera.read",
-            name="Camera Read",
-            description="Reads camera state.",
+            id="android.device.microphone.read",
+            name="Microphone Read",
+            description="Reads microphone state.",
             version="1.0.0",
             category=CapabilityCategory.DEVICE,
             security_level=SecurityLevel.NORMAL,
-            supported_actions=("camera.status",),
+            supported_actions=("microphone.status",),
             is_mutation=False,
             supports_rollback=False,
             audit_required=False,
@@ -33,20 +33,20 @@ class CameraReadCapability(BaseAndroidCapability):
         return False
 
 
-class CameraWriteCapability(BaseAndroidCapability):
-    def __init__(self, bridge: CameraBridge) -> None:
+class MicrophoneWriteCapability(BaseAndroidCapability):
+    def __init__(self, bridge: MicrophoneBridge) -> None:
         self._bridge = bridge
 
     @property
     def descriptor(self) -> CapabilityDescriptor:
         return CapabilityDescriptor(
-            id="android.device.camera.write",
-            name="Camera Write",
-            description="Captures photos or videos.",
+            id="android.device.microphone.write",
+            name="Microphone Write",
+            description="Controls microphone recording.",
             version="1.0.0",
             category=CapabilityCategory.DEVICE,
             security_level=SecurityLevel.HIGH,
-            supported_actions=("camera.capture",),
+            supported_actions=("microphone.record.start", "microphone.record.stop"),
             is_mutation=True,
             supports_rollback=False,
             audit_required=True,
@@ -59,7 +59,3 @@ class CameraWriteCapability(BaseAndroidCapability):
 
     def supports_rollback(self, arguments: Mapping[str, Any]) -> bool:
         return False
-
-class CameraCapability:
-    pass
-

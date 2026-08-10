@@ -1,24 +1,24 @@
 from typing import Any, Mapping
-from core.android.bridge.contracts import FileBridge
+from core.android.bridge.contracts import GalleryBridge
 from core.android.capabilities.base import BaseAndroidCapability
 from core.android.models import (
     CapabilityCategory, CapabilityDescriptor, ConfirmationLevel, SecurityLevel,
 )
 
-class FilesReadCapability(BaseAndroidCapability):
-    def __init__(self, bridge: FileBridge) -> None:
+class GalleryReadCapability(BaseAndroidCapability):
+    def __init__(self, bridge: GalleryBridge) -> None:
         self._bridge = bridge
 
     @property
     def descriptor(self) -> CapabilityDescriptor:
         return CapabilityDescriptor(
-            id="android.device.files.read",
-            name="Files Read",
-            description="Reads and lists files.",
+            id="android.device.gallery.read",
+            name="Gallery Read",
+            description="Reads gallery assets.",
             version="1.0.0",
             category=CapabilityCategory.DEVICE,
             security_level=SecurityLevel.NORMAL,
-            supported_actions=("files.read", "files.list"),
+            supported_actions=("gallery.list",),
             is_mutation=False,
             supports_rollback=False,
             audit_required=False,
@@ -33,20 +33,20 @@ class FilesReadCapability(BaseAndroidCapability):
         return False
 
 
-class FilesWriteCapability(BaseAndroidCapability):
-    def __init__(self, bridge: FileBridge) -> None:
+class GalleryWriteCapability(BaseAndroidCapability):
+    def __init__(self, bridge: GalleryBridge) -> None:
         self._bridge = bridge
 
     @property
     def descriptor(self) -> CapabilityDescriptor:
         return CapabilityDescriptor(
-            id="android.device.files.write",
-            name="Files Write",
-            description="Creates, modifies, and deletes files.",
+            id="android.device.gallery.write",
+            name="Gallery Write",
+            description="Adds or deletes gallery assets.",
             version="1.0.0",
             category=CapabilityCategory.DEVICE,
             security_level=SecurityLevel.HIGH,
-            supported_actions=("files.create", "files.write", "files.rename", "files.move", "files.delete"),
+            supported_actions=("gallery.add", "gallery.delete"),
             is_mutation=True,
             supports_rollback=True,
             audit_required=True,
@@ -73,40 +73,13 @@ class FilesWriteCapability(BaseAndroidCapability):
         if not data:
             return
 
-        if action == "files.create":
-            if "path" in data:
-                await self._bridge.execute("files.delete", {"path": data["path"]})
+        if action == "gallery.add":
+            if "asset_id" in data:
+                await self._bridge.execute("gallery.restore_add", {"asset_id": data["asset_id"]})
                 
-        elif action == "files.write":
-            if "path" in data and "pre_state" in data:
-                await self._bridge.execute("files.restore_write", {
-                    "path": data["path"],
+        elif action == "gallery.delete":
+            if "asset_id" in data and "pre_state" in data:
+                await self._bridge.execute("gallery.restore_delete", {
+                    "asset_id": data["asset_id"],
                     "pre_state": data["pre_state"]
                 })
-                
-        elif action == "files.rename":
-            if "pre_state" in data:
-                pre = data["pre_state"]
-                await self._bridge.execute("files.restore_rename", {
-                    "source": pre["source"],
-                    "destination": pre["destination"]
-                })
-                
-        elif action == "files.move":
-            if "pre_state" in data:
-                pre = data["pre_state"]
-                await self._bridge.execute("files.restore_move", {
-                    "source": pre["source"],
-                    "destination": pre["destination"]
-                })
-                
-        elif action == "files.delete":
-            if "path" in data and "pre_state" in data:
-                await self._bridge.execute("files.restore_delete", {
-                    "path": data["path"],
-                    "pre_state": data["pre_state"]
-                })
-
-class FilesCapability:
-    pass
-

@@ -1,24 +1,24 @@
 from typing import Any, Mapping
-from core.android.bridge.contracts import CameraBridge
+from core.android.bridge.contracts import StorageBridge
 from core.android.capabilities.base import BaseAndroidCapability
 from core.android.models import (
     CapabilityCategory, CapabilityDescriptor, ConfirmationLevel, SecurityLevel,
 )
 
-class CameraReadCapability(BaseAndroidCapability):
-    def __init__(self, bridge: CameraBridge) -> None:
+class StorageReadCapability(BaseAndroidCapability):
+    def __init__(self, bridge: StorageBridge) -> None:
         self._bridge = bridge
 
     @property
     def descriptor(self) -> CapabilityDescriptor:
         return CapabilityDescriptor(
-            id="android.device.camera.read",
-            name="Camera Read",
-            description="Reads camera state.",
+            id="android.device.storage.read",
+            name="Storage Read",
+            description="Reads storage capacity info.",
             version="1.0.0",
             category=CapabilityCategory.DEVICE,
             security_level=SecurityLevel.NORMAL,
-            supported_actions=("camera.status",),
+            supported_actions=("storage.info",),
             is_mutation=False,
             supports_rollback=False,
             audit_required=False,
@@ -33,22 +33,22 @@ class CameraReadCapability(BaseAndroidCapability):
         return False
 
 
-class CameraWriteCapability(BaseAndroidCapability):
-    def __init__(self, bridge: CameraBridge) -> None:
+class StorageWriteCapability(BaseAndroidCapability):
+    def __init__(self, bridge: StorageBridge) -> None:
         self._bridge = bridge
 
     @property
     def descriptor(self) -> CapabilityDescriptor:
         return CapabilityDescriptor(
-            id="android.device.camera.write",
-            name="Camera Write",
-            description="Captures photos or videos.",
+            id="android.device.storage.write",
+            name="Storage Write",
+            description="Destructive storage operations.",
             version="1.0.0",
             category=CapabilityCategory.DEVICE,
-            security_level=SecurityLevel.HIGH,
-            supported_actions=("camera.capture",),
+            security_level=SecurityLevel.NORMAL,
+            supported_actions=("storage.format", "storage.clear_cache"),
             is_mutation=True,
-            supports_rollback=False,
+            supports_rollback=False, # Irreversible
             audit_required=True,
             confirmation_level=ConfirmationLevel.USER,
             idempotent=False,
@@ -59,7 +59,3 @@ class CameraWriteCapability(BaseAndroidCapability):
 
     def supports_rollback(self, arguments: Mapping[str, Any]) -> bool:
         return False
-
-class CameraCapability:
-    pass
-

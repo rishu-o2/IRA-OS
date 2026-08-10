@@ -217,3 +217,36 @@ class NotificationBridge(BaseBridge):
     - notification.reply    (args: {"notification_id": str, "text": str})
     """
     pass
+
+
+# ── Pack D: Device & Data Layer Bridges ────────────────────────────────────────
+
+class CameraBridge(BaseBridge):
+    """Bridge for camera hardware and image capture."""
+    pass
+
+class MicrophoneBridge(BaseBridge):
+    """Bridge for microphone hardware and audio recording."""
+    pass
+
+class FileBridge(BaseBridge):
+    """Bridge for local file system operations."""
+    pass
+
+# We redefine MediaBridge here as a dedicated domain bridge rather than the legacy generic one
+class MediaBridge(BaseBridge):
+    """Bridge for media playback controls and status."""
+    pass
+
+class GalleryBridge(BaseBridge):
+    """Bridge for gallery assets and collections."""
+    pass
+
+class DownloadBridge(BaseBridge):
+    """Bridge for download manager operations."""
+    pass
+
+class StorageBridge(BaseBridge):
+    """Bridge for storage capacity and cache management."""
+    pass
+
