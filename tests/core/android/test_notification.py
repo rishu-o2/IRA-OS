@@ -1,11 +1,15 @@
-﻿"""
+"""
 Unit tests for Pack C: Notification Capabilities
 Tests descriptor, read/write separation, mutation metadata, rollback behavior
 (dismiss -> reversible, clear -> reversible, reply -> irreversible).
 """
 import pytest
 from core.android.bridge.notification import MockNotificationBridge
-from core.android.capabilities.notification import NotificationReadCapability, NotificationWriteCapability
+from core.android.capabilities.notification import (
+    NotificationReadCapability, 
+    NotificationWriteCapability,
+    NotificationReplyCapability
+)
 from core.android.models import SecurityLevel, ConfirmationLevel
 
 @pytest.fixture
@@ -24,6 +28,10 @@ def read_cap(notif_bridge):
 def write_cap(notif_bridge):
     return NotificationWriteCapability(notif_bridge)
 
+@pytest.fixture
+def reply_cap(notif_bridge):
+    return NotificationReplyCapability(notif_bridge)
+
 
 # ── Descriptor Tests ───────────────────────────────────────────────────────────
 
@@ -38,6 +46,7 @@ def test_read_security_normal(read_cap):
 
 def test_read_confirmation_none(read_cap):
     assert read_cap.descriptor.confirmation_level == ConfirmationLevel.NONE
+
 
 def test_write_descriptor_id(write_cap):
     assert write_cap.descriptor.id == "android.communication.notification.write"
@@ -62,6 +71,29 @@ def test_write_supported_actions(write_cap):
     actions = set(write_cap.descriptor.supported_actions)
     assert "notification.dismiss" in actions
     assert "notification.clear" in actions
+    assert "notification.reply" not in actions
+
+
+def test_reply_descriptor_id(reply_cap):
+    assert reply_cap.descriptor.id == "android.communication.notification.reply"
+
+def test_reply_is_mutation(reply_cap):
+    assert reply_cap.descriptor.is_mutation is True
+
+def test_reply_supports_rollback_descriptor(reply_cap):
+    assert reply_cap.descriptor.supports_rollback is False
+
+def test_reply_security_high(reply_cap):
+    assert reply_cap.descriptor.security_level == SecurityLevel.HIGH
+
+def test_reply_confirmation_user(reply_cap):
+    assert reply_cap.descriptor.confirmation_level == ConfirmationLevel.USER
+
+def test_reply_audit_required(reply_cap):
+    assert reply_cap.descriptor.audit_required is True
+
+def test_reply_supported_actions(reply_cap):
+    actions = set(reply_cap.descriptor.supported_actions)
     assert "notification.reply" in actions
 
 
@@ -93,15 +125,18 @@ async def test_clear_all_notifications(write_cap, notif_bridge):
     assert result.success
     assert len(notif_bridge._active) == 0
 
+
+# ── Reply Action Handling ──────────────────────────────────────────────────────
+
 @pytest.mark.anyio
-async def test_reply_notification(write_cap, notif_bridge):
-    result = await write_cap.execute_action({"action": "notification.reply", "notification_id": "n-002", "text": "Thanks"})
+async def test_reply_notification(reply_cap, notif_bridge):
+    result = await reply_cap.execute_action({"action": "notification.reply", "notification_id": "n-002", "text": "Thanks"})
     assert result.success
     assert result.data["replied"] is True
 
 @pytest.mark.anyio
-async def test_reply_missing_text(write_cap):
-    result = await write_cap.execute_action({"action": "notification.reply", "notification_id": "n-001"})
+async def test_reply_missing_text(reply_cap):
+    result = await reply_cap.execute_action({"action": "notification.reply", "notification_id": "n-001"})
     assert not result.success
 
 
@@ -113,8 +148,8 @@ def test_dismiss_is_reversible(write_cap):
 def test_clear_is_reversible(write_cap):
     assert write_cap.supports_rollback({"action": "notification.clear"}) is True
 
-def test_reply_is_irreversible(write_cap):
-    assert write_cap.supports_rollback({"action": "notification.reply"}) is False
+def test_reply_is_irreversible(reply_cap):
+    assert reply_cap.supports_rollback({"action": "notification.reply"}) is False
 
 @pytest.mark.anyio
 async def test_dismiss_rollback_restores_notification(write_cap, notif_bridge):
@@ -134,3 +169,4 @@ async def test_clear_rollback_restores_all_notifications(write_cap, notif_bridge
 
     await write_cap.rollback({"action": "notification.clear"}, result.data)
     assert len(notif_bridge._active) == 3
+

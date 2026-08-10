@@ -362,6 +362,26 @@ async def test_adapter_get_android_capability():
     adapter = DefaultAndroidAdapter(cap)
     assert adapter.get_android_capability() is cap
 
+@pytest.mark.anyio
+async def test_adapter_mapping_annotation_path():
+    """Verify adapter successfully processes Mapping inputs for rollback."""
+    class RollbackCapability(ConcreteAndroidCapability):
+        def supports_rollback(self, arguments):
+            from typing import Mapping
+            assert isinstance(arguments, Mapping)
+            return True
+        async def rollback(self, arguments, result):
+            from typing import Mapping
+            assert isinstance(arguments, Mapping)
+            self.rolled_back = True
+
+    cap = RollbackCapability("mapping-cap")
+    adapter = DefaultAndroidAdapter(cap)
+    args = {"action": "test"}
+    assert adapter.supports_rollback(args) is True
+    await adapter.rollback(args, "result")
+    assert getattr(cap, "rolled_back", False) is True
+
 
 # ─────────────────────────────────────────────
 # Health

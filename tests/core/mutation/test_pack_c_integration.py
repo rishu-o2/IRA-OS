@@ -1,4 +1,4 @@
-﻿"""
+"""
 Pack C Integration Tests — Milestone 16.1.5 Hardened.
 
 All mutations enter through ExecutionService.execute().
@@ -283,7 +283,12 @@ async def test_contacts_delete_rollback(contacts_service, contacts_bridge):
 
 @pytest.fixture
 async def notif_service(event_bus, logger, notif_bridge):
-    caps = [NotificationReadCapability(notif_bridge), NotificationWriteCapability(notif_bridge)]
+    from core.android.capabilities.notification import NotificationReplyCapability
+    caps = [
+        NotificationReadCapability(notif_bridge), 
+        NotificationWriteCapability(notif_bridge),
+        NotificationReplyCapability(notif_bridge)
+    ]
     return await _build_service(event_bus, logger, caps)()
 
 @pytest.mark.anyio
@@ -327,6 +332,63 @@ async def test_notification_clear_rollback(notif_service, notif_bridge):
 
 @pytest.mark.anyio
 async def test_notification_reply_irreversible(notif_service, notif_bridge):
-    outcome = await notif_service.execute(make_cmd("android.communication.notification.write", "notification.reply", notification_id="n-003", text="OK"))
+    outcome = await notif_service.execute(make_cmd("android.communication.notification.reply", "notification.reply", notification_id="n-003", text="OK"))
     assert outcome.succeeded
     # No rollback attempt needed; covered by unit test supports_rollback=False
+
+@pytest.mark.anyio
+async def test_notification_reply_confirmation_denied(event_bus, logger, notif_bridge):
+    # Create a service with a Deny confirmation provider to test failure
+    class DenyConfirmProvider(ConfirmationProvider):
+        def supports(self, level: ConfirmationLevel) -> bool:
+            return True
+        async def request_confirmation(self, context, level):
+            return False
+
+    from core.android.capabilities.notification import NotificationReplyCapability
+    caps = [NotificationReplyCapability(notif_bridge)]
+    
+    async def _build_denied():
+        registry = InMemoryCapabilityRegistry(event_bus)
+        for cap in caps:
+            await registry.register(DefaultAndroidAdapter(cap))
+
+        class FakeProtectedDispatcher(ProtectedDispatcher):
+            async def dispatch(self, command: ExecutionCommand) -> ExecutionOutcome:
+                return ExecutionOutcome(
+                    command_id=command.command_id,
+                    capability_id=command.capability_id,
+                    status=ExecutionOutcomeStatus.SUCCEEDED,
+                )
+
+        class FakeClassifier(ExecutionClassifier):
+            def classify(self, command: ExecutionCommand) -> ExecutionType:
+                return ExecutionType.MUTATION
+
+        audit_mgr = AuditManager(logger)
+        audit_mgr.register_sink(InMemoryAuditSink())
+        conf_mgr = ConfirmationManager(logger)
+        conf_mgr.register_provider(DenyConfirmProvider())
+
+        mutation_mgr = DefaultMutationManager(
+            capability_registry=registry,
+            confirmation_manager=conf_mgr,
+            audit_manager=audit_mgr,
+            event_bus=event_bus,
+            logger=logger,
+        )
+
+        return DefaultExecutionService(
+            classifier=FakeClassifier(),
+            protected_dispatcher=FakeProtectedDispatcher(),
+            mutation_manager=mutation_mgr,
+            event_bus=event_bus,
+            logger=logger,
+        )
+
+    denied_service = await _build_denied()
+    outcome = await denied_service.execute(make_cmd("android.communication.notification.reply", "notification.reply", notification_id="n-001", text="OK"))
+    
+    assert outcome.denied
+    assert "denied" in outcome.denial_reason.lower()
+

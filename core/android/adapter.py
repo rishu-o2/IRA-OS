@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Mapping
 from core.runtime.interfaces import Capability
 from core.runtime.models import CapabilityMetadata, ExecutionContext
 from .contracts import AndroidAdapter, AndroidCapability
