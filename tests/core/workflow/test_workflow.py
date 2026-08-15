@@ -318,6 +318,22 @@ async def test_manager_pipeline_success():
     assert WorkflowCompleted in event_types
 
 @pytest.mark.anyio
+async def test_manager_empty_queue_raises_workflow_error():
+    container = await build_container()
+    await seed_test_capability(container)
+    manager = await container.resolve(WorkflowManager)
+    
+    # Force the queue to return None on dequeue
+    manager._queue.dequeue = lambda: None
+    
+    req = make_request("wf-empty-queue")
+    res = await manager.submit(req)
+    
+    assert res.success is False
+    assert res.status == WorkflowStatus.FAILED
+    assert "Queue empty immediately after enqueue" in res.error
+
+@pytest.mark.anyio
 async def test_manager_status():
     container = await build_container()
     await seed_test_capability(container)

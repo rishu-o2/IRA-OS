@@ -55,6 +55,7 @@ class DefaultProtectedDispatcher(ProtectedDispatcher):
         executor: Executor,
         event_bus: EventBus,
         logger: Logger,
+        confirmation_manager: 'Any' = None,
     ) -> None:
         self._permission_manager = permission_manager
         self._registry = registry
@@ -62,10 +63,21 @@ class DefaultProtectedDispatcher(ProtectedDispatcher):
         self._executor = executor
         self._event_bus = event_bus
         self._logger = logger
+        self._confirmation_manager = confirmation_manager
 
     async def dispatch(self, command: ExecutionCommand) -> ExecutionOutcome:
         cmd_id = command.command_id
         cap_id = command.capability_id
+
+        # Extract trust level from command metadata
+        trust_level_val = command.metadata.get("trust_level", "UNTRUSTED")
+        if isinstance(trust_level_val, TrustLevel):
+            trust_level = trust_level_val
+        else:
+            try:
+                trust_level = TrustLevel(trust_level_val)
+            except ValueError:
+                trust_level = TrustLevel.UNTRUSTED
 
         # Security authorization
         permission_request = PermissionRequest(
@@ -74,35 +86,32 @@ class DefaultProtectedDispatcher(ProtectedDispatcher):
             context=SecurityContext(
                 request_id=cmd_id,
                 capability_id=cap_id,
-                trust_level=TrustLevel.MEDIUM,
+                trust_level=trust_level,
             ),
         )
         permission_result = await self._permission_manager.check_permission(permission_request)
 
-        # Handle denial
-        if not permission_result.granted:
+        # Handle REQUIRES_APPROVAL or DENIED
+        if permission_result.state.value == "REQUIRES_APPROVAL":
+            if not self._confirmation_manager:
+                reason = "Security requires approval, but ConfirmationManager is not injected."
+                return await self._publish_denial(cmd_id, cap_id, reason)
+
+            from core.mutation.models import ConfirmationLevel, MutationContext
+            context = MutationContext(
+                mutation_id=str(uuid.uuid4()),
+                workflow_id=command.metadata.get("workflow_id"),
+                execution_id=cmd_id,
+                capability_id=cap_id,
+                user_id=command.metadata.get("user_id"),
+            )
+            confirmed = await self._confirmation_manager.request_confirmation(context, ConfirmationLevel.USER)
+            if not confirmed:
+                reason = "User denied required security approval."
+                return await self._publish_denial(cmd_id, cap_id, reason)
+        elif not permission_result.granted:
             reason = permission_result.denial_reason or "Permission denied by Security Kernel."
-            self._logger.warning(
-                "Execution denied by security kernel.",
-                command_id=cmd_id,
-                capability_id=cap_id,
-                reason=reason,
-            )
-            await self._event_bus.publish(
-                ExecutionDenied(
-                    payload={"command_id": cmd_id, "capability_id": cap_id, "reason": reason},
-                    source="ProtectedDispatcher",
-                    command_id=cmd_id,
-                    capability_id=cap_id,
-                    denial_reason=reason,
-                )
-            )
-            return ExecutionOutcome(
-                command_id=cmd_id,
-                capability_id=cap_id,
-                status=ExecutionOutcomeStatus.DENIED,
-                denial_reason=reason,
-            )
+            return await self._publish_denial(cmd_id, cap_id, reason)
 
         # Authorization confirmed
         await self._event_bus.publish(
@@ -176,6 +185,29 @@ class DefaultProtectedDispatcher(ProtectedDispatcher):
             capability_id=cap_id,
             status=ExecutionOutcomeStatus.SUCCEEDED,
             result_data=result_data,
+        )
+
+    async def _publish_denial(self, cmd_id: str, cap_id: str, reason: str) -> ExecutionOutcome:
+        self._logger.warning(
+            "Execution denied by security kernel.",
+            command_id=cmd_id,
+            capability_id=cap_id,
+            reason=reason,
+        )
+        await self._event_bus.publish(
+            ExecutionDenied(
+                payload={"command_id": cmd_id, "capability_id": cap_id, "reason": reason},
+                source="ProtectedDispatcher",
+                command_id=cmd_id,
+                capability_id=cap_id,
+                denial_reason=reason,
+            )
+        )
+        return ExecutionOutcome(
+            command_id=cmd_id,
+            capability_id=cap_id,
+            status=ExecutionOutcomeStatus.DENIED,
+            denial_reason=reason,
         )
 
 

@@ -281,6 +281,59 @@ async def test_denied_execution_publishes_denied_event_not_authorized():
 
 
 # ──────────────────────────────────────────────────────────
+# 7.5. Permission Requires Approval
+# ──────────────────────────────────────────────────────────
+
+@pytest.mark.anyio
+async def test_requires_approval_execution_prompts_confirmation():
+    svc, bus, _ = _build_service(granted=False)
+    # Patch the permission result to be REQUIRES_APPROVAL
+    svc._protected_dispatcher._permission_manager.check_permission.return_value = PermissionResult(
+        permission_id="perm-2",
+        capability_id="test.cap",
+        granted=False,
+        state=PermissionState.REQUIRES_APPROVAL,
+    )
+    
+    # Mock confirmation manager
+    conf_mgr = AsyncMock()
+    conf_mgr.request_confirmation.return_value = True # user approved
+    svc._protected_dispatcher._confirmation_manager = conf_mgr
+    
+    cmd = ExecutionCommand(command_id="cmd-req-app", capability_id="test.cap")
+    outcome = await svc.execute(cmd)
+    
+    # Since it's approved by ConfirmationManager, it should proceed to execution and succeed
+    assert outcome.succeeded
+    conf_mgr.request_confirmation.assert_called_once()
+    assert outcome.denied is False
+
+@pytest.mark.anyio
+async def test_requires_approval_execution_denies_if_confirmation_rejected():
+    svc, bus, _ = _build_service(granted=False)
+    # Patch the permission result to be REQUIRES_APPROVAL
+    svc._protected_dispatcher._permission_manager.check_permission.return_value = PermissionResult(
+        permission_id="perm-3",
+        capability_id="test.cap",
+        granted=False,
+        state=PermissionState.REQUIRES_APPROVAL,
+    )
+    
+    # Mock confirmation manager
+    conf_mgr = AsyncMock()
+    conf_mgr.request_confirmation.return_value = False # user denied
+    svc._protected_dispatcher._confirmation_manager = conf_mgr
+    
+    cmd = ExecutionCommand(command_id="cmd-req-app-deny", capability_id="test.cap")
+    outcome = await svc.execute(cmd)
+    
+    # Since it's denied by ConfirmationManager, it should deny
+    assert outcome.denied
+    conf_mgr.request_confirmation.assert_called_once()
+    assert "User denied required security approval" in outcome.denial_reason
+
+
+# ──────────────────────────────────────────────────────────
 # 8. Runtime Failure
 # ──────────────────────────────────────────────────────────
 

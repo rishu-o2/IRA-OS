@@ -18,7 +18,7 @@ from .events import (
     WorkflowResumed,
     WorkflowStarted,
 )
-from .exceptions import WorkflowCancelledError, WorkflowNotFoundError, WorkflowValidationError
+from .exceptions import WorkflowCancelledError, WorkflowNotFoundError, WorkflowValidationError, WorkflowError
 from .models import WorkflowRequest, WorkflowResult, WorkflowStatus
 
 

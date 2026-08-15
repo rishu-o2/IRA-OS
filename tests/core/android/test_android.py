@@ -487,6 +487,23 @@ async def test_manager_shutdown_is_idempotent():
     assert health.state == ComponentState.STOPPED
 
 @pytest.mark.anyio
+async def test_manager_auto_registers_capabilities_on_start():
+    container = await build_container()
+    manager = await container.resolve(AndroidRuntime)
+    registry = await container.resolve(AndroidRegistry)
+    
+    # Before start, registry might be empty or not fully populated
+    await manager.start()
+    
+    # After start, the registry should have all capabilities discovered by AndroidModule
+    caps = registry.get_all()
+    assert len(caps) > 10, "Should have discovered and registered multiple capabilities"
+    
+    # Verify LocationCapability is among them
+    location_caps = [c for c in caps if "location" in c.descriptor.id]
+    assert len(location_caps) > 0, "LocationCapability must be discovered and registered"
+
+@pytest.mark.anyio
 async def test_manager_health_check_stopped_before_start():
     container = await build_container()
     manager = await container.resolve(AndroidRuntime)

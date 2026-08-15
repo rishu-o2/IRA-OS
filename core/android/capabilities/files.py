@@ -58,7 +58,8 @@ class FilesWriteCapability(BaseAndroidCapability):
         return await self._bridge.execute(action, arguments)
 
     def supports_rollback(self, arguments: Mapping[str, Any]) -> bool:
-        return True
+        action = arguments.get("action")
+        return action in ("files.create", "files.write", "files.rename", "files.move", "files.delete")
 
     async def rollback(self, arguments: Mapping[str, Any], original_result: Any) -> None:
         action = arguments.get("action")

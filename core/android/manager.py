@@ -20,11 +20,13 @@ class AndroidRuntimeManager(AndroidRuntime, LifecycleComponent):
         health_tracker: AndroidHealthTracker,
         event_bus: EventBus,
         logger: Logger,
+        capabilities: list = None,
     ):
         self._registry = registry
         self._health_tracker = health_tracker
         self._event_bus = event_bus
         self._logger = logger
+        self._capabilities = capabilities or []
         self._started = False
 
     async def start(self) -> None:
@@ -35,6 +37,15 @@ class AndroidRuntimeManager(AndroidRuntime, LifecycleComponent):
         await self._health_tracker.update_status(AndroidRuntimeStatus.INITIALIZING, "Starting up...")
 
         # In the future, capability discovery/loading might happen here
+        from .exceptions import AndroidCapabilityRegistrationError
+        for cap in self._capabilities:
+            try:
+                await self._registry.register(cap)
+            except AndroidCapabilityRegistrationError as e:
+                # Log and gracefully continue (e.g. for legacy duplicate aliases)
+                self._logger.warning(f"Skipping registration for duplicate capability: {e}")
+            except Exception as e:
+                self._logger.error(f"Failed to register capability: {e}")
 
         self._started = True
         await self._health_tracker.update_status(AndroidRuntimeStatus.RUNNING, "Started successfully.")

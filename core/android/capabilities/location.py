@@ -1,6 +1,7 @@
 from typing import Any, Mapping
 
 from core.android.models import CapabilityDescriptor, SecurityLevel, CapabilityCategory
+from core.android.bridge.contracts import LocationBridge
 
 from .base import BaseAndroidCapability
 

@@ -7,6 +7,7 @@ from .audit import AuditManager, InMemoryAuditSink
 from .confirmation import ConfirmationManager
 from .contracts import ConfirmationProvider, MutationManager
 from .manager import DefaultMutationManager
+from .providers import DenyByDefaultProvider
 
 
 class MutationModule(Module):
@@ -32,7 +33,9 @@ class MutationModule(Module):
         async def build_confirmation_manager() -> ConfirmationManager:
             logger_factory = await container.resolve(LoggerFactory)
             logger = logger_factory.get("core.mutation.confirmation")
-            return ConfirmationManager(logger)
+            manager = ConfirmationManager(logger)
+            manager.register_provider(DenyByDefaultProvider())
+            return manager
 
         async def build_mutation_manager() -> MutationManager:
             registry = await container.resolve(CapabilityRegistry)

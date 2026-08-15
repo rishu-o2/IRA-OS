@@ -25,6 +25,8 @@ class MockFileBridge(FileBridge):
             content = args.get("content", "")
             if not path:
                 raise AndroidAdapterError("path is required")
+            if path in self._fs:
+                raise AndroidAdapterError(f"File already exists: {path}")
             self._fs[path] = {"content": content}
             return {"path": path}
             

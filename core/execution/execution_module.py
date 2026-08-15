@@ -36,6 +36,9 @@ class ExecutionModule(Module):
             logger_factory = await container.resolve(LoggerFactory)
             logger = logger_factory.get("core.execution.dispatcher")
 
+            from core.mutation.confirmation import ConfirmationManager
+            confirmation_manager = await container.resolve(ConfirmationManager)
+
             return DefaultProtectedDispatcher(
                 permission_manager=permission_manager,
                 registry=registry,
@@ -43,6 +46,7 @@ class ExecutionModule(Module):
                 executor=executor,
                 event_bus=event_bus,
                 logger=logger,
+                confirmation_manager=confirmation_manager,
             )
 
         async def build_execution_service() -> ExecutionService:

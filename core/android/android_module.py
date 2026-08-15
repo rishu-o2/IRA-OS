@@ -37,11 +37,21 @@ class AndroidModule(Module):
             logger_factory = await container.resolve(LoggerFactory)
             logger = logger_factory.get("core.android")
 
+            import inspect
+            import core.android.capabilities as caps
+            capabilities_to_register = []
+            for cap_name in caps.__all__:
+                cap_cls = getattr(caps, cap_name)
+                if not inspect.isabstract(cap_cls):
+                    cap_instance = await container.resolve(cap_cls)
+                    capabilities_to_register.append(cap_instance)
+
             return AndroidRuntimeManager(
                 registry=registry,
                 health_tracker=health_tracker,
                 event_bus=event_bus,
                 logger=logger,
+                capabilities=capabilities_to_register,
             )
 
         container.register_factory(AndroidRegistry, factory=build_registry, lifetime=Lifetime.SINGLETON)
@@ -78,3 +88,11 @@ class AndroidModule(Module):
         container.register_singleton(GalleryBridge, MockGalleryBridge)
         container.register_singleton(DownloadBridge, MockDownloadBridge)
         container.register_singleton(StorageBridge, MockStorageBridge)
+
+        # Auto-register all non-abstract capability classes into the container
+        import inspect
+        import core.android.capabilities as caps
+        for cap_name in caps.__all__:
+            cap_cls = getattr(caps, cap_name)
+            if not inspect.isabstract(cap_cls):
+                container.register_singleton(cap_cls)

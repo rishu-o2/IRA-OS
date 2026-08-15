@@ -124,19 +124,6 @@ class TelephonyBridge(BaseBridge):
     pass
 
 
-class MediaBridge(BaseBridge):
-    """
-    Bridge for media capture and playback.
-    Sub-domains: camera, gallery, microphone.
-    """
-    pass
-
-
-class NotificationBridge(BaseBridge):
-    """Bridge for reading and managing notifications."""
-    pass
-
-
 class SettingsBridge(BaseBridge):
     """Bridge for modifying device settings."""
     pass
